@@ -125,6 +125,9 @@ class MarketData:
             if (base in _EXCLUDED_BASES or base.endswith(_EXCLUDED_SUFFIXES)
                     or "USD" in base):               # stablecoins : RLUSD, PYUSD...
                 continue
+            lo, hi = float(t.get("lowPrice", 0)), float(t.get("highPrice", 0))
+            if 0.97 < lo and hi < 1.03:              # prix colle a 1 dollar : stablecoin
+                continue
             qv = float(t.get("quoteVolume", 0))
             if qv >= min_quote_volume:
                 picked.append((qv, sym))

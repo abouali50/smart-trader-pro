@@ -52,7 +52,8 @@ def test_top_symbols_filters(monkeypatch):
     tick = [{"symbol": "BTCUSDT", "quoteVolume": "9e9"}, {"symbol": "USDCUSDT", "quoteVolume": "8e9"},
             {"symbol": "ETHUSDT", "quoteVolume": "5e9"}, {"symbol": "ETHBTC", "quoteVolume": "7e9"},
             {"symbol": "BTCUPUSDT", "quoteVolume": "6e9"}, {"symbol": "TINYUSDT", "quoteVolume": "10"},
-            {"symbol": "RLUSDUSDT", "quoteVolume": "4e9"}]
+            {"symbol": "RLUSDUSDT", "quoteVolume": "4e9"},
+            {"symbol": "UUSDT", "quoteVolume": "3e9", "lowPrice": "0.9995", "highPrice": "1.0004"}]
     monkeypatch.setattr(md.session, "get", lambda *a, **k: FakeResponse(tick))
     assert md.top_symbols(count=5) == ["BTCUSDT", "ETHUSDT"]
 
