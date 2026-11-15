@@ -1,0 +1,15 @@
+{
+  "symbols": "auto",
+  "auto_count": 20,
+  "min_quote_volume": 20000000,
+  "interval": "1h",
+  "capital": 1000,
+  "risk_pct": 1,
+  "btc_filter": true,
+  "market_drop_block_pct": 5,
+  "cooldown_hours": 12,
+  "state_file": "state.json",
+  "strategy": {
+    "min_score": 70
+  }
+}
