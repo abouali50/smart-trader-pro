@@ -53,9 +53,11 @@ def test_top_symbols_filters(monkeypatch):
             {"symbol": "ETHUSDT", "quoteVolume": "5e9"}, {"symbol": "ETHBTC", "quoteVolume": "7e9"},
             {"symbol": "BTCUPUSDT", "quoteVolume": "6e9"}, {"symbol": "TINYUSDT", "quoteVolume": "10"},
             {"symbol": "RLUSDUSDT", "quoteVolume": "4e9"},
-            {"symbol": "UUSDT", "quoteVolume": "3e9", "lowPrice": "0.9995", "highPrice": "1.0004"}]
+            {"symbol": "UUSDT", "quoteVolume": "3e9", "lowPrice": "0.9995", "highPrice": "1.0004"},
+            {"symbol": "GOOGLBUSDT", "quoteVolume": "2e9"}, {"symbol": "QQQBUSDT", "quoteVolume": "2e9"},
+            {"symbol": "BNBUSDT", "quoteVolume": "1e9"}]
     monkeypatch.setattr(md.session, "get", lambda *a, **k: FakeResponse(tick))
-    assert md.top_symbols(count=5) == ["BTCUSDT", "ETHUSDT"]
+    assert md.top_symbols(count=5) == ["BTCUSDT", "ETHUSDT", "BNBUSDT"]   # BNB reste : ce n'est pas une action
 
 
 def test_context_sources_and_failures(monkeypatch):

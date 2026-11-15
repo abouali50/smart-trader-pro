@@ -31,6 +31,21 @@ _EXCLUDED_BASES = {
 }
 _EXCLUDED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 
+# Actions et fonds americains tokenises : cotes sous la forme <symbole boursier>B.
+_STOCK_TICKERS = {
+    "AAPL", "MSFT", "NVDA", "GOOGL", "GOOG", "AMZN", "META", "TSLA", "MSTR", "COIN",
+    "CRCL", "HOOD", "INTC", "AMD", "NFLX", "PLTR", "TSM", "AVGO", "ORCL", "UBER",
+    "BABA", "GME", "AMC", "MARA", "RIOT", "SMCI", "ARM", "SNOW", "SHOP", "PYPL",
+    "DIS", "BA", "JPM", "WMT", "KO", "PEP", "NKE", "MCD", "XOM", "CVX", "PFE", "JNJ",
+    "UNH", "LLY", "CSCO", "ADBE", "CRM", "QCOM", "MU", "ASML", "SOFI", "RKLB", "IONQ",
+    "OKLO", "NIO", "LCID", "RIVN", "SPCX", "SPY", "QQQ", "TQQQ", "SQQQ", "SOXL", "SOXS",
+    "IWM", "DIA", "ARKK", "IBIT", "GLD", "SLV", "TLT", "VOO", "VTI",
+}
+
+
+def is_tokenized_stock(base: str) -> bool:
+    return base.endswith("B") and base[:-1] in _STOCK_TICKERS
+
 
 @dataclass
 class Candles:
@@ -126,7 +141,8 @@ class MarketData:
                 continue
             base = sym[: -len(quote)]
             if (base in _EXCLUDED_BASES or base.endswith(_EXCLUDED_SUFFIXES)
-                    or "USD" in base):               # stablecoins : RLUSD, PYUSD...
+                    or "USD" in base                 # stablecoins : RLUSD, PYUSD...
+                    or is_tokenized_stock(base)):
                 continue
             lo, hi = float(t.get("lowPrice", 0)), float(t.get("highPrice", 0))
             if 0.97 < lo and hi < 1.03:              # prix colle a 1 dollar : stablecoin
