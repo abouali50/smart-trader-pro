@@ -122,7 +122,8 @@ class MarketData:
             if not sym.endswith(quote):
                 continue
             base = sym[: -len(quote)]
-            if base in _EXCLUDED_BASES or base.endswith(_EXCLUDED_SUFFIXES):
+            if (base in _EXCLUDED_BASES or base.endswith(_EXCLUDED_SUFFIXES)
+                    or "USD" in base):               # stablecoins : RLUSD, PYUSD...
                 continue
             qv = float(t.get("quoteVolume", 0))
             if qv >= min_quote_volume:
