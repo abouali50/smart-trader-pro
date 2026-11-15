@@ -87,6 +87,23 @@ prioritaire si stop et objectif sont touchés dans la même bougie, frais de
 0,1 % par ordre. Regarde surtout `R moyen` (au-dessus de 0 = stratégie
 gagnante sur la période) et compare à la colonne `Garder`.
 
+## Comparer des variantes sans se mentir
+
+```bash
+cd /opt/smart-trader-pro
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare
+```
+
+La commande coupe l'historique en deux. Elle mesure 24 variantes (tendance
+lue en 4 h ou à la journée, score minimal, largeur du stop, objectif) sur la
+première partie, puis juge la meilleure sur la seconde, qu'elle n'a jamais
+vue. Seul ce second résultat compte. Le verdict dit si la variante tient
+(au moins 30 trades, R moyen ≥ +0,10, PF ≥ 1,15) ou non.
+
+Régler les paramètres jusqu'à obtenir un beau backtest ne prouve rien ; une
+stratégie qui tient sur des données jamais vues est un indice sérieux, pas
+une garantie.
+
 ## Réglages (`config.json`)
 
 | Clé | Défaut | Rôle |
@@ -106,6 +123,7 @@ gagnante sur la période) et compare à la colonne `Garder`.
 python -m smart_trader_pro scan        # une passe
 python -m smart_trader_pro watch       # surveillance continue
 python -m smart_trader_pro backtest    # test sur l'historique
+python -m smart_trader_pro compare     # variantes, validées sur données jamais vues
 python -m pytest                  # tests du code
 ```
 

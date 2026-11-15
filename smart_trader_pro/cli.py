@@ -1,4 +1,4 @@
-"""Ligne de commande : scan, watch, backtest, test-telegram.
+"""Ligne de commande : scan, watch, backtest, compare, test-telegram.
 
 Auteur : Aziz Mernissi
 """
@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, backtest
+from . import __version__, backtest, compare
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .notify import Telegram, fmt_price, format_signal
@@ -198,6 +198,100 @@ def cmd_backtest(args) -> None:
     print("Resultats passes : aucune garantie pour la suite.")
 
 
+def cmd_compare(args) -> None:
+    cfg = load_config(args.config)
+    md = MarketData()
+    base = Params.from_dict(cfg["strategy"])
+    interval = cfg["interval"]
+    if args.candles < compare.needed_candles(base):
+        sys.exit(f"Il faut au moins {compare.needed_candles(base)} bougies (--candles).")
+    symbols = ([s.upper() for s in args.symbols] if args.symbols
+               else resolve_symbols(cfg, md)[:8])
+    print(f"Telechargement de {args.candles} bougies {interval} pour {len(symbols)} paires...")
+    candles = []
+    for sym in symbols:
+        try:
+            c = md.klines(sym, interval, args.candles)
+        except RuntimeError as exc:
+            print(f"  {sym} ignore : {exc}")
+            continue
+        if len(c) >= compare.needed_candles(base):
+            candles.append(c)
+        else:
+            print(f"  {sym} ignore : historique trop court ({len(c)} bougies)")
+    if not candles:
+        sys.exit("Aucune paire exploitable.")
+    btc = md.klines("BTCUSDT", interval, args.candles) if cfg["btc_filter"] else None
+    total = len(compare.variants(base))
+    done = [0]
+
+    def progress(label: str) -> None:
+        done[0] += 1
+        print(f"  variante {done[0]}/{total}", end="\r", flush=True)
+
+    results = compare.run(candles, btc, base, train_ratio=args.train_ratio,
+                          fee_pct=args.fee, progress=progress)
+    c0 = candles[0]
+    cut = compare.split_index(c0, args.train_ratio)
+
+    def day(ts: int) -> str:
+        return datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%d/%m/%Y")
+
+    print(f"\nApprentissage : {day(c0.ts[0])} -> {day(c0.ts[cut])}   "
+          f"Validation : {day(c0.ts[cut])} -> {day(c0.ts[-1])}")
+    print(f"Paires : {', '.join(c.symbol for c in candles)}\n")
+    head = (f"{'Variante':<40}| {'APPRENTISSAGE':^24}| {'VALIDATION (jamais vue)':^24}")
+    sub = f"{'':<40}| {'Trades':>6}{'R moy':>8}{'PF':>7}   | {'Trades':>6}{'R moy':>8}{'PF':>7}"
+    print(head)
+    print(sub)
+    print("-" * len(sub))
+
+    def pf(r) -> str:
+        return "inf" if r.profit_factor == float("inf") else f"{r.profit_factor:.2f}"
+
+    def row(v, mark="") -> None:
+        print(f"{(mark + v.label):<40}| {v.train.count:>6}{v.train.expectancy:>8.2f}{pf(v.train):>7}   "
+              f"| {v.test.count:>6}{v.test.expectancy:>8.2f}{pf(v.test):>7}")
+
+    for v in results[:args.top]:
+        row(v, "* " if v.is_default(base) else "  ")
+    default = next((v for v in results if v.is_default(base)), None)
+    if default is not None and default not in results[:args.top]:
+        print("...")
+        row(default, "* ")
+    print("\n* = reglage actuel. Classement selon l'apprentissage uniquement.")
+
+    positives = sum(v.test.expectancy > 0 and v.test.count >= compare.MIN_TEST_TRADES
+                    for v in results)
+    print(f"Variantes gagnantes sur la validation : {positives} sur {len(results)}.")
+    champion = compare.best(results)
+    print("\nVERDICT")
+    if champion is None:
+        print("Pas assez de trades sur l'apprentissage pour departager les variantes. "
+              "Relance avec plus de paires ou de bougies.")
+        return
+    t = champion.test
+    print(f"Meilleure variante sur l'apprentissage : {champion.label.strip()}")
+    print(f"Sur la validation : {t.count} trades, {t.win_rate:.1f} % gagnants, "
+          f"R moyen {t.expectancy:+.2f}, PF {pf(t)}, "
+          f"{t.return_pct(cfg['risk_pct']):+.1f} % en risquant {cfg['risk_pct']} % par trade "
+          f"(garder : {t.buy_hold_pct:+.1f} %).")
+    if compare.holds(champion):
+        p = champion.params
+        print("Elle TIENT sur des donnees jamais vues. C'est encourageant, pas une preuve : "
+              "surveille-la en reel sans argent avant de t'y fier.")
+        print("Pour l'adopter, mets ceci dans config.json puis redemarre le service :")
+        print(f'  "strategy": {{"htf_factor": {p.htf_factor}, "min_score": {p.min_score}, '
+              f'"stop_min_atr": {p.stop_min_atr}}}')
+        print(f"  (objectif a viser : {champion.tp_r:g} fois le risque)")
+    else:
+        print("Elle NE TIENT PAS sur des donnees jamais vues "
+              f"(il faudrait au moins {compare.MIN_TEST_TRADES} trades, "
+              f"R moyen >= {compare.MIN_TEST_EXPECTANCY:+.2f} et PF >= {compare.MIN_TEST_PF}).")
+        print("Conclusion : cette famille de strategie n'a pas d'avantage demontre. "
+              "Ne suis pas ses signaux avec de l'argent reel.")
+
+
 def cmd_test_telegram(args) -> None:
     tg = Telegram()
     if not tg.enabled:
@@ -220,6 +314,13 @@ def main(argv=None) -> None:
     bt.add_argument("--max-bars", type=int, default=72)
     bt.add_argument("--fee", type=float, default=0.1)
     bt.set_defaults(fn=cmd_backtest)
+    cp = sub.add_parser("compare", help="comparer des variantes, avec validation sur donnees jamais vues")
+    cp.add_argument("--symbols", nargs="*")
+    cp.add_argument("--candles", type=int, default=8000)
+    cp.add_argument("--train-ratio", type=float, default=0.6)
+    cp.add_argument("--fee", type=float, default=0.1)
+    cp.add_argument("--top", type=int, default=8)
+    cp.set_defaults(fn=cmd_compare)
     sub.add_parser("test-telegram", help="verifier Telegram").set_defaults(fn=cmd_test_telegram)
     args = ap.parse_args(argv)
     args.fn(args)

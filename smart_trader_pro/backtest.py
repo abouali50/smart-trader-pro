@@ -79,15 +79,22 @@ class Report:
 
 
 def run(c: Candles, p: Params, tp_r: float = 2.0, max_bars: int = 72,
-        fee_pct: float = 0.1, market_trend: Optional[Dict[int, int]] = None) -> Report:
-    """`market_trend` : horodatage -> tendance du BTC ; -1 bloque les entrees."""
-    f = prepare(c, p)
+        fee_pct: float = 0.1, market_trend: Optional[Dict[int, int]] = None,
+        features=None, lo: Optional[int] = None, hi: Optional[int] = None) -> Report:
+    """Backtest sur les bougies [lo, hi) ; par defaut tout l'historique.
+
+    `market_trend` : horodatage -> tendance du BTC ; -1 bloque les entrees.
+    `features` : indicateurs deja calcules (ils sont causaux, donc decouper
+    l'historique apres coup ne fait fuiter aucune information future).
+    Toute position ouverte est soldee a la derniere bougie de la plage.
+    """
+    f = features if features is not None else prepare(c, p)
     rep = Report(c.symbol)
-    n = len(c)
-    start = warmup(p)
+    n = len(c) if hi is None else min(hi, len(c))
+    start = max(warmup(p), lo or 0)
     if n <= start + 1:
         return rep
-    rep.buy_hold_pct = (c.close[-1] / c.open[start + 1] - 1) * 100
+    rep.buy_hold_pct = (c.close[n - 1] / c.open[start + 1] - 1) * 100
     fee = fee_pct / 100
     i = start
     while i < n - 1:
