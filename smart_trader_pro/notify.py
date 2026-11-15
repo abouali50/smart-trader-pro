@@ -22,11 +22,12 @@ def fmt_price(x: float) -> str:
     return f"{x:.8f}".rstrip("0")
 
 
-def format_signal(ev: Evaluation, interval: str, capital: float, risk_pct: float) -> str:
+def format_signal(ev: Evaluation, interval: str, capital: float, risk_pct: float,
+                  title: str = "SIGNAL D'ENTREE") -> str:
     when = datetime.fromtimestamp(ev.ts / 1000, tz=timezone.utc).strftime("%d/%m %H:%M UTC")
     qty, notional = position_size(capital, risk_pct, ev.price, ev.stop)
     lines = [
-        f"SIGNAL D'ENTREE - {ev.symbol} ({interval})",
+        f"{title} - {ev.symbol} ({interval})",
         f"Score : {ev.score}/100 - bougie du {when}",
         "",
         f"Entree : {fmt_price(ev.price)}",

@@ -140,7 +140,7 @@ def _higher_timeframe(c: Candles, factor: int):
     return htf_at, htf_close
 
 
-def prepare(c: Candles, p: Params) -> Features:
+def prepare(c: Candles, p: Params, btc: Optional[Candles] = None) -> Features:
     htf_at, htf_close = _higher_timeframe(c, p.htf_factor)
     bb_low, bb_mid, _ = ind.bollinger(c.close)
     obv = ind.obv(c.close, c.volume)
@@ -162,6 +162,39 @@ def prepare(c: Candles, p: Params) -> Features:
         htf_close=htf_close,
         htf_ema=ind.ema(htf_close, p.htf_ema),
     )
+
+
+DEFAULT_TP = 2.0
+
+GRID = {
+    "htf_factor": (4, 24),          # tendance lue en 4 h ou a la journee
+    "min_score": (70, 80),
+    "stop_min_atr": (1.0, 2.0),
+    "tp_r": (1.5, 2.0, 3.0),
+}
+
+
+def feature_key(p: Params) -> tuple:
+    """Parametres dont dependent les indicateurs precalcules."""
+    return (p.htf_factor,)
+
+
+def market_filter(btc: Optional[Candles], p: Params) -> Optional[dict]:
+    """Tendance de fond du BTC par horodatage ; -1 bloque les entrees."""
+    if btc is None:
+        return None
+    fb = prepare(btc, p)
+    return {btc.ts[i]: fb.trend(i, p.htf_slope_bars) for i in range(len(btc))}
+
+
+def label(p: Params, tp_r: float) -> str:
+    fond = "jour" if p.htf_factor == 24 else f"{p.htf_factor}h"
+    return f"fond {fond:<4} score {p.min_score} stop {p.stop_min_atr:g}ATR obj {tp_r:g}R"
+
+
+def config_snippet(p: Params) -> str:
+    return (f'"strategy": {{"htf_factor": {p.htf_factor}, "min_score": {p.min_score}, '
+            f'"stop_min_atr": {p.stop_min_atr}}}')
 
 
 def warmup(p: Params) -> int:

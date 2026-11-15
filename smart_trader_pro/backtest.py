@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from .data import Candles
-from .strategy import Params, evaluate, prepare, warmup
+from . import strategy as _strategy
 
 
 @dataclass
@@ -78,9 +78,10 @@ class Report:
         return (equity - 1) * 100
 
 
-def run(c: Candles, p: Params, tp_r: float = 2.0, max_bars: int = 72,
+def run(c: Candles, p, tp_r: float = 2.0, max_bars: int = 72,
         fee_pct: float = 0.1, market_trend: Optional[Dict[int, int]] = None,
-        features=None, lo: Optional[int] = None, hi: Optional[int] = None) -> Report:
+        features=None, lo: Optional[int] = None, hi: Optional[int] = None,
+        engine=_strategy) -> Report:
     """Backtest sur les bougies [lo, hi) ; par defaut tout l'historique.
 
     `market_trend` : horodatage -> tendance du BTC ; -1 bloque les entrees.
@@ -88,10 +89,11 @@ def run(c: Candles, p: Params, tp_r: float = 2.0, max_bars: int = 72,
     l'historique apres coup ne fait fuiter aucune information future).
     Toute position ouverte est soldee a la derniere bougie de la plage.
     """
-    f = features if features is not None else prepare(c, p)
+    evaluate = getattr(engine, "evaluate_fast", engine.evaluate)
+    f = features if features is not None else engine.prepare(c, p)
     rep = Report(c.symbol)
     n = len(c) if hi is None else min(hi, len(c))
-    start = max(warmup(p), lo or 0)
+    start = max(engine.warmup(p), lo or 0)
     if n <= start + 1:
         return rep
     rep.buy_hold_pct = (c.close[n - 1] / c.open[start + 1] - 1) * 100

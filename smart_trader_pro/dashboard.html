@@ -41,6 +41,7 @@
   .banner span { color: var(--muted); font-size: 13px; }
 
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
+  .note { color: var(--muted); font-size: 13px; margin: -2px 0 10px; }
   .table { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   .row, .head { display: grid; grid-template-columns: 1.25fr 1.1fr 1.6fr .8fr .9fr; gap: 10px; align-items: center; padding: 10px 14px; }
   .head { color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
@@ -61,11 +62,14 @@
   .pill.up { color: var(--up); border-color: rgba(53, 208, 138, .4); }
   .pill.down { color: var(--down); border-color: rgba(255, 107, 107, .4); }
   .pill.sig { color: #06281a; background: var(--up); border-color: var(--up); font-weight: 650; }
+  .pill.sig.radar { background: var(--accent); border-color: var(--accent); color: #04202e; }
+  .chg { font-variant-numeric: tabular-nums; font-size: 13px; }
   .pill.sus { color: var(--warn); border-color: rgba(245, 185, 66, .5); }
 
   .detail { display: none; padding: 4px 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel2); }
   .item.open .detail { display: block; }
   .fams { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 10px 0 14px; }
+  .fams.six { grid-template-columns: repeat(6, 1fr); }
   .fam .k { color: var(--muted); font-size: 12px; text-transform: capitalize; display: flex; justify-content: space-between; }
   .fam .bar { margin-top: 5px; }
   .fam .bar i { background: var(--accent); }
@@ -89,7 +93,7 @@
     .cards .card:last-child { grid-column: 1 / -1; }
     .row, .head { grid-template-columns: 1.2fr 1.4fr .9fr; }
     .row > .price, .head > .price, .row > .trend, .head > .trend { display: none; }
-    .fams { grid-template-columns: 1fr 1fr; }
+    .fams, .fams.six { grid-template-columns: 1fr 1fr; }
     .cols { grid-template-columns: 1fr; }
     .levels { grid-template-columns: 1fr 1fr; }
     .sigs .line { grid-template-columns: 1fr 1fr; }
@@ -115,7 +119,14 @@
 
   <div class="banner" id="banner"><b id="bT">Chargement…</b><span id="bS"></span></div>
 
-  <h2>Paires surveillées</h2>
+  <h2>Radar d'explosion</h2>
+  <div class="note" id="radarNote">Chargement…</div>
+  <div class="table">
+    <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">24 h</div><div class="right">État</div></div>
+    <div id="radar"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <h2>Replis en tendance haussière</h2>
   <div class="table">
     <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">Fond</div><div class="right">État</div></div>
     <div id="rows"><div class="empty">Chargement…</div></div>
@@ -171,11 +182,13 @@
     return b;
   }
 
-  function renderRow(r, minScore) {
-    var item = el("div", "item" + (open[r.symbol] ? " open" : ""));
+  function renderRow(r, minScore, kind) {
+    var key = (kind || "repli") + ":" + r.symbol;
+    var isRadar = kind === "radar";
+    var item = el("div", "item" + (open[key] ? " open" : ""));
     var row = el("button", "row");
     row.type = "button";
-    row.setAttribute("aria-expanded", open[r.symbol] ? "true" : "false");
+    row.setAttribute("aria-expanded", open[key] ? "true" : "false");
 
     var sym = el("div", "sym");
     var base = r.symbol.replace(/USDT$/, "");
@@ -191,20 +204,27 @@
     row.appendChild(sc);
 
     var t = el("div", "trend");
-    t.appendChild(el("span", "pill " + (r.trend === 1 ? "up" : r.trend === -1 ? "down" : ""),
-      r.trend === 1 ? "hausse" : r.trend === -1 ? "baisse" : "neutre"));
+    if (isRadar) {
+      var ch = r.change_24h;
+      var cs = el("span", "chg", (ch === null || ch === undefined) ? "—" : pct(ch, true));
+      if (ch !== null && ch !== undefined) cs.style.color = ch >= 0 ? "var(--up)" : "var(--down)";
+      t.appendChild(cs);
+    } else {
+      t.appendChild(el("span", "pill " + (r.trend === 1 ? "up" : r.trend === -1 ? "down" : ""),
+        r.trend === 1 ? "hausse" : r.trend === -1 ? "baisse" : "neutre"));
+    }
     row.appendChild(t);
 
     var st = el("div", "right");
-    if (r.signal) st.appendChild(el("span", "pill sig", "SIGNAL"));
+    if (r.signal) st.appendChild(el("span", "pill sig" + (isRadar ? " radar" : ""), isRadar ? "DÉPART" : "SIGNAL"));
     else if (r.suspended) st.appendChild(el("span", "pill sus", "suspendu"));
     else st.appendChild(el("span", "pill", "attente"));
     row.appendChild(st);
 
     row.addEventListener("click", function () {
-      open[r.symbol] = !open[r.symbol];
-      item.classList.toggle("open", open[r.symbol]);
-      row.setAttribute("aria-expanded", open[r.symbol] ? "true" : "false");
+      open[key] = !open[key];
+      item.classList.toggle("open", open[key]);
+      row.setAttribute("aria-expanded", open[key] ? "true" : "false");
     });
     item.appendChild(row);
 
@@ -219,7 +239,7 @@
       });
       d.appendChild(lv);
     }
-    var fams = el("div", "fams");
+    var fams = el("div", "fams" + (Object.keys(r.families || {}).length > 5 ? " six" : ""));
     Object.keys(r.families || {}).forEach(function (k) {
       var got = r.families[k][0], total = r.families[k][1];
       var f = el("div", "fam");
@@ -248,6 +268,8 @@
       $("bT").textContent = "Le scanner n'a pas encore publié de résultat.";
       $("bS").textContent = "Le premier scan arrive dans la minute qui suit le démarrage du service.";
       rows.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      $("radar").replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      $("radarNote").textContent = "";
     } else {
       var limit = (INTERVAL_MIN[s.interval] || 60) * 1.3 * 60000;
       var late = Date.now() - s.updated > limit;
@@ -273,20 +295,32 @@
       var unit = s.trend_unit === "jour" ? "à la journée" : "sur l'unité supérieure";
       if (s.blocked) {
         banner.className = "banner warn";
-        $("bT").textContent = "Signaux suspendus : " + s.blocked + ".";
-        $("bS").textContent = "Le scanner continue d'analyser, mais n'envoie aucune alerte tant que cette condition dure.";
+        $("bT").textContent = "Replis suspendus : " + s.blocked + ".";
+        $("bS").textContent = "Cela concerne les replis en tendance. Le radar d'explosion, lui, continue d'alerter.";
       } else if (active) {
         banner.className = "banner go";
         $("bT").textContent = active + (active > 1 ? " signaux d'entrée actifs" : " signal d'entrée actif");
         $("bS").textContent = "Touchez la ligne pour voir l'entrée, le stop et les objectifs. La décision reste la vôtre.";
       } else {
         banner.className = "banner";
-        $("bT").textContent = "Aucun point d'entrée pour l'instant.";
-        $("bS").textContent = "Un signal exige une tendance de fond haussière (lue " + unit + ") et un score d'au moins " + s.min_score + " sur 100.";
+        $("bT").textContent = "Aucun repli à signaler pour l'instant.";
+        $("bS").textContent = "Un repli exige une tendance de fond haussière (lue " + unit + ") et un score d'au moins " + s.min_score + " sur 100.";
       }
 
       if (!list.length) rows.replaceChildren(el("div", "empty", "Aucune paire analysée."));
-      else rows.replaceChildren.apply(rows, list.map(function (r) { return renderRow(r, s.min_score); }));
+      else rows.replaceChildren.apply(rows, list.map(function (r) { return renderRow(r, s.min_score, "repli"); }));
+
+      var rd = s.radar || {}, rbox = $("radar"), rl = rd.rows || [];
+      if (!rd.enabled) {
+        $("radarNote").textContent = "Le radar est désactivé dans les réglages.";
+        rbox.replaceChildren(el("div", "empty", "Radar désactivé."));
+      } else {
+        var starts = rl.filter(function (r) { return r.signal; }).length;
+        $("radarNote").textContent = (rd.scanned || 0) + " paires balayées · cassure d'un plus haut avec volume anormal et acheteurs agressifs · "
+          + (starts ? starts + (starts > 1 ? " départs détectés" : " départ détecté") : "aucun départ détecté") + " · seuil " + rd.min_score + "/100";
+        if (!rl.length) rbox.replaceChildren(el("div", "empty", "Aucune paire analysée par le radar pour l'instant."));
+        else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, "radar"); }));
+      }
     }
 
     var box = $("sigs");
@@ -295,7 +329,10 @@
     } else {
       box.replaceChildren.apply(box, sig.slice(0, 20).map(function (x) {
         var l = el("div", "line");
-        l.appendChild(el("div", "sym", x.symbol.replace(/USDT$/, "")));
+        var name = el("div", "sym");
+        name.appendChild(document.createTextNode(x.symbol.replace(/USDT$/, "")));
+        name.appendChild(el("small", "", x.kind === "radar" ? " · radar" : " · repli"));
+        l.appendChild(name);
         l.appendChild(el("div", "num", when(x.ts)));
         l.appendChild(el("div", "num opt", "Entrée " + price(x.price)));
         l.appendChild(el("div", "num opt", "Stop " + price(x.stop)));

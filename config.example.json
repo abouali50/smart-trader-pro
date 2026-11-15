@@ -8,8 +8,15 @@
   "btc_filter": true,
   "market_drop_block_pct": 5,
   "cooldown_hours": 12,
+  "radar": true,
+  "radar_count": 150,
+  "radar_min_volume": 3000000,
+  "radar_cooldown_hours": 24,
   "state_file": "state.json",
   "strategy": {
+    "min_score": 70
+  },
+  "radar_strategy": {
     "min_score": 70
   }
 }

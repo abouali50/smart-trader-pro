@@ -1,8 +1,15 @@
 # Smart Trader Pro
 
-Scanner de points d'entrée pour les cryptomonnaies. Il surveille les paires
-USDT les plus liquides de Binance Spot, note chaque configuration sur 100 et
-envoie une alerte quand plusieurs familles d'indicateurs s'accordent.
+Scanner de cryptomonnaies sur Binance Spot, avec deux moteurs :
+
+- **Radar d'explosion** : balaie environ 150 paires USDT et repère celles qui
+  démarrent, c'est-à-dire qui cassent un plus haut avec un volume anormal et
+  des acheteurs agressifs.
+- **Replis en tendance** : sur les paires les plus liquides, attend un repli
+  propre dans une tendance haussière.
+
+Chaque configuration est notée sur 100 ; une alerte part quand plusieurs
+familles d'indicateurs s'accordent.
 
 **Il analyse, il ne trade pas.** Aucune clé d'échange n'est demandée, aucun
 ordre n'est passé. La décision reste la tienne.
@@ -82,7 +89,33 @@ signal à elles seules.
 Si le marché global perd plus de `market_drop_block_pct` % en 24 h, les
 signaux sont suspendus. Une source en panne est ignorée, le scanner continue.
 
-## Comment le score est calculé
+## Le radar d'explosion
+
+Un mouvement violent commence presque toujours par une cassure accompagnée
+d'un volume très supérieur à l'habitude. Le radar cherche ce moment.
+
+| Famille | Points | Ce qui est mesuré |
+| --- | --- | --- |
+| Volume | 30 | volume de la bougie contre sa moyenne, volume des 4 dernières bougies, OBV au plus haut |
+| Acheteurs | 10 | part du volume achetée au prix du marché (ordres agressifs) |
+| Cassure | 30 | clôture au-dessus du plus haut des 48 dernières bougies, sortie de compression de Bollinger |
+| Momentum | 15 | RSI, MACD, ADX, clôture près du plus haut |
+| Force relative | 10 | performance face au Bitcoin sur 24 bougies |
+| Risque | 5 | le départ est encore récent (moins de 15 % déjà parcourus) |
+
+Un départ exige une cassure **et** un score d'au moins `radar_strategy.min_score`
+(70 par défaut). Le radar ne se bloque pas quand le marché baisse : une crypto
+peut partir seule. Il ne prédit pas l'avenir ; beaucoup de cassures échouent,
+d'où le stop fourni avec chaque alerte.
+
+Tester et comparer le radar sur l'historique :
+
+```bash
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro backtest --mode radar
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar
+```
+
+## Comment le score des replis est calculé
 
 | Famille | Points | Indicateurs |
 | --- | --- | --- |
@@ -145,6 +178,11 @@ une garantie.
 | `market_drop_block_pct` | 5 | suspend les signaux si le marché chute de ce pourcentage en 24 h |
 | `cooldown_hours` | 12 | délai minimal entre deux alertes sur une paire |
 | `strategy.min_score` | 70 | plus haut = moins de signaux, plus sélectifs |
+| `radar` | `true` | active le radar d'explosion |
+| `radar_count` | 150 | nombre de paires balayées par le radar |
+| `radar_min_volume` | 3000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit balayée |
+| `radar_cooldown_hours` | 24 | délai minimal entre deux alertes radar sur une paire |
+| `radar_strategy.min_score` | 70 | seuil du radar |
 
 ## Utilisation manuelle
 

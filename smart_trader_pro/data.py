@@ -43,17 +43,20 @@ class Candles:
     low: List[float] = field(default_factory=list)
     close: List[float] = field(default_factory=list)
     volume: List[float] = field(default_factory=list)
+    taker_buy: List[float] = field(default_factory=list)   # volume achete au marche
 
     def __len__(self) -> int:
         return len(self.ts)
 
-    def append(self, ts: int, o: float, h: float, l: float, c: float, v: float) -> None:
+    def append(self, ts: int, o: float, h: float, l: float, c: float, v: float,
+               taker_buy: float = 0.0) -> None:
         self.ts.append(ts)
         self.open.append(o)
         self.high.append(h)
         self.low.append(l)
         self.close.append(c)
         self.volume.append(v)
+        self.taker_buy.append(taker_buy)
 
 
 class MarketData:
@@ -106,9 +109,9 @@ class MarketData:
                 continue
             seen.add(k[0])
             out.append(int(k[0]), float(k[1]), float(k[2]), float(k[3]),
-                       float(k[4]), float(k[5]))
+                       float(k[4]), float(k[5]), float(k[9]) if len(k) > 9 else 0.0)
         if len(out) > total:
-            for name in ("ts", "open", "high", "low", "close", "volume"):
+            for name in ("ts", "open", "high", "low", "close", "volume", "taker_buy"):
                 setattr(out, name, getattr(out, name)[-total:])
         return out
 

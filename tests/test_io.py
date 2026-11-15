@@ -103,7 +103,7 @@ def test_scan_once_end_to_end(monkeypatch, tmp_path, capsys):
         def get(self):
             return context.MarketContext(market_change_24h=1.0)
 
-    cfg = dict(cli.DEFAULTS, symbols=["TESTUSDT"], btc_filter=False,
+    cfg = dict(cli.DEFAULTS, symbols=["TESTUSDT"], btc_filter=False, radar=False,
                state_file=str(tmp_path / "state.json"))
     monkeypatch.setattr("smart_trader_pro.data.time.time", lambda: (c.ts[idx] + HOUR + 5) / 1000)
     assert cli.scan_once(cfg, md, Tg(), Ctx()) == 1

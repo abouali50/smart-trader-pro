@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, backtest, compare
+from . import __version__, backtest, breakout, compare, strategy
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .notify import Telegram, fmt_price, format_signal
@@ -30,6 +30,11 @@ DEFAULTS = {
     "market_drop_block_pct": 5,
     "cooldown_hours": 12,
     "state_file": "state.json",
+    "radar": True,
+    "radar_count": 150,
+    "radar_min_volume": 3_000_000,
+    "radar_cooldown_hours": 24,
+    "radar_strategy": {},
     "status_file": "status.json",
     "signals_file": "signals.json",
     "strategy": {},
@@ -152,9 +157,14 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         state[sym] = ev.ts
         sent += 1
         new_signals.append({
+            "kind": "repli",
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
         })
+    radar_rows, radar_scanned = [], 0
+    if cfg["radar"]:
+        radar_rows, radar_scanned, radar_sent = scan_radar(cfg, md, tg, ctx, state, new_signals)
+        sent += radar_sent
     save_state(cfg["state_file"], state)
     if new_signals:
         history = (new_signals + load_list(cfg["signals_file"]))[:100]
@@ -176,6 +186,12 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         },
         "rows": [row_dict(ev, blocked) for ev in
                  sorted(rows, key=lambda e: e.score, reverse=True)],
+        "radar": {
+            "enabled": bool(cfg["radar"]),
+            "scanned": radar_scanned,
+            "min_score": breakout.Params.from_dict(cfg["radar_strategy"]).min_score,
+            "rows": radar_rows,
+        },
     })
 
     rows.sort(key=lambda e: e.score, reverse=True)
@@ -186,6 +202,72 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         print(f"{ev.symbol:<12}{fmt_price(ev.price):>14}{ev.score:>7}  {fond:<8}{etat}")
     log(f"{len(rows)} paires analysees, {sent} nouveau(x) signal(aux).")
     return sent
+
+
+def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
+               state: Dict[str, int], new_signals: list):
+    """Radar d'explosion : balaie un grand nombre de paires a la recherche d'un depart.
+
+    Renvoie (lignes pour le tableau de bord, nombre de paires analysees, alertes envoyees).
+    """
+    rp = breakout.Params.from_dict(cfg["radar_strategy"])
+    interval = cfg["interval"]
+    need = breakout.warmup(rp) + 30
+    cooldown_ms = int(cfg["radar_cooldown_hours"] * 3_600_000)
+    try:
+        symbols = md.top_symbols(count=cfg["radar_count"],
+                                 min_quote_volume=cfg["radar_min_volume"])
+        btc = md.klines("BTCUSDT", interval, need)
+    except RuntimeError as exc:
+        log(f"Radar indisponible : {exc}")
+        return [], 0, 0
+    found, sent = [], 0
+    for sym in symbols:
+        try:
+            c = md.klines(sym, interval, need)
+        except RuntimeError:
+            continue
+        if len(c) < breakout.warmup(rp) + 1:
+            continue
+        i = len(c) - 1
+        ev = breakout.evaluate(breakout.prepare(c, rp, btc=btc), i, rp)
+        if ev is None:
+            continue
+        change = (c.close[i] / c.close[i - 24] - 1) * 100 if i >= 24 else None
+        found.append((ev, change))
+        key = "radar:" + sym
+        if not ev.is_signal or ev.ts - state.get(key, 0) < cooldown_ms:
+            continue
+        text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"],
+                             title="RADAR D'EXPLOSION")
+        extra = ctx.lines(sym)
+        if extra:
+            text += "\n\nContexte :\n" + "\n".join(f"  {l}" for l in extra)
+        print("\n" + text + "\n", flush=True)
+        if tg.enabled and not tg.send(text):
+            log(f"{sym} : echec de l'envoi Telegram")
+        state[key] = ev.ts
+        sent += 1
+        new_signals.append({
+            "kind": "radar",
+            "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
+            "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+        })
+    found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
+    rows = []
+    for ev, change in found[:15]:
+        row = row_dict(ev, "")
+        row["change_24h"] = change
+        rows.append(row)
+    log(f"Radar : {len(found)} paires analysees, {sent} depart(s) detecte(s).")
+    return rows, len(found), sent
+
+
+def engine_for(args, cfg: dict):
+    """Moteur et parametres selon --mode."""
+    if getattr(args, "mode", "repli") == "radar":
+        return breakout, breakout.Params.from_dict(cfg["radar_strategy"])
+    return strategy, Params.from_dict(cfg["strategy"])
 
 
 def cmd_scan(args) -> None:
@@ -213,16 +295,20 @@ def cmd_watch(args) -> None:
 def cmd_backtest(args) -> None:
     cfg = load_config(args.config)
     md = MarketData()
-    p = Params.from_dict(cfg["strategy"])
+    engine, p = engine_for(args, cfg)
+    radar = engine is breakout
+    tp_r = args.tp_r if args.tp_r else engine.DEFAULT_TP
     interval = cfg["interval"]
-    symbols = [s.upper() for s in args.symbols] if args.symbols else resolve_symbols(cfg, md)
-    market = None
-    if cfg["btc_filter"]:
-        btc = md.klines("BTCUSDT", interval, args.candles)
-        fb = prepare(btc, p)
-        market = {btc.ts[i]: fb.trend(i, p.htf_slope_bars) for i in range(len(btc))}
+    if args.symbols:
+        symbols = [s.upper() for s in args.symbols]
+    elif radar:
+        symbols = md.top_symbols(count=30, min_quote_volume=cfg["radar_min_volume"])
+    else:
+        symbols = resolve_symbols(cfg, md)
+    btc = md.klines("BTCUSDT", interval, args.candles) if (radar or cfg["btc_filter"]) else None
+    market = engine.market_filter(btc, p)
     reports = []
-    print(f"Backtest {interval} sur {args.candles} bougies - objectif {args.tp_r}R, "
+    print(f"Backtest {'radar' if radar else 'repli'} {interval} sur {args.candles} bougies - objectif {tp_r:g}R, "
           f"frais {args.fee} % par ordre\n")
     head = f"{'Paire':<12}{'Trades':>7}{'Gagnants':>10}{'R moyen':>9}{'PF':>7}{'Total R':>9}{'DD max':>8}{'Garder':>9}"
     print(head)
@@ -238,8 +324,9 @@ def cmd_backtest(args) -> None:
         except RuntimeError as exc:
             print(f"{sym:<12}{exc}")
             continue
-        r = backtest.run(c, p, tp_r=args.tp_r, max_bars=args.max_bars,
-                         fee_pct=args.fee, market_trend=market)
+        r = backtest.run(c, p, tp_r=tp_r, max_bars=args.max_bars, fee_pct=args.fee,
+                         market_trend=market, engine=engine,
+                         features=engine.prepare(c, p, btc=btc))
         reports.append(r)
         show(r)
     total = backtest.merge(reports)
@@ -256,12 +343,17 @@ def cmd_backtest(args) -> None:
 def cmd_compare(args) -> None:
     cfg = load_config(args.config)
     md = MarketData()
-    base = Params.from_dict(cfg["strategy"])
+    engine, base = engine_for(args, cfg)
+    radar = engine is breakout
     interval = cfg["interval"]
-    if args.candles < compare.needed_candles(base):
-        sys.exit(f"Il faut au moins {compare.needed_candles(base)} bougies (--candles).")
-    symbols = ([s.upper() for s in args.symbols] if args.symbols
-               else resolve_symbols(cfg, md)[:8])
+    if args.candles < compare.needed_candles(base, engine):
+        sys.exit(f"Il faut au moins {compare.needed_candles(base, engine)} bougies (--candles).")
+    if args.symbols:
+        symbols = [s.upper() for s in args.symbols]
+    elif radar:
+        symbols = md.top_symbols(count=25, min_quote_volume=cfg["radar_min_volume"])
+    else:
+        symbols = resolve_symbols(cfg, md)[:8]
     print(f"Telechargement de {args.candles} bougies {interval} pour {len(symbols)} paires...")
     candles = []
     for sym in symbols:
@@ -270,14 +362,14 @@ def cmd_compare(args) -> None:
         except RuntimeError as exc:
             print(f"  {sym} ignore : {exc}")
             continue
-        if len(c) >= compare.needed_candles(base):
+        if len(c) >= compare.needed_candles(base, engine):
             candles.append(c)
         else:
             print(f"  {sym} ignore : historique trop court ({len(c)} bougies)")
     if not candles:
         sys.exit("Aucune paire exploitable.")
-    btc = md.klines("BTCUSDT", interval, args.candles) if cfg["btc_filter"] else None
-    total = len(compare.variants(base))
+    btc = md.klines("BTCUSDT", interval, args.candles) if (radar or cfg["btc_filter"]) else None
+    total = len(compare.variants(base, engine))
     done = [0]
 
     def progress(label: str) -> None:
@@ -285,7 +377,7 @@ def cmd_compare(args) -> None:
         print(f"  variante {done[0]}/{total}", end="\r", flush=True)
 
     results = compare.run(candles, btc, base, train_ratio=args.train_ratio,
-                          fee_pct=args.fee, progress=progress)
+                          fee_pct=args.fee, progress=progress, engine=engine)
     c0 = candles[0]
     cut = compare.split_index(c0, args.train_ratio)
 
@@ -332,12 +424,10 @@ def cmd_compare(args) -> None:
           f"{t.return_pct(cfg['risk_pct']):+.1f} % en risquant {cfg['risk_pct']} % par trade "
           f"(garder : {t.buy_hold_pct:+.1f} %).")
     if compare.holds(champion):
-        p = champion.params
         print("Elle TIENT sur des donnees jamais vues. C'est encourageant, pas une preuve : "
               "surveille-la en reel sans argent avant de t'y fier.")
         print("Pour l'adopter, mets ceci dans config.json puis redemarre le service :")
-        print(f'  "strategy": {{"htf_factor": {p.htf_factor}, "min_score": {p.min_score}, '
-              f'"stop_min_atr": {p.stop_min_atr}}}')
+        print("  " + engine.config_snippet(champion.params))
         print(f"  (objectif a viser : {champion.tp_r:g} fois le risque)")
     else:
         print("Elle NE TIENT PAS sur des donnees jamais vues "
@@ -374,11 +464,13 @@ def main(argv=None) -> None:
     bt = sub.add_parser("backtest", help="tester la strategie sur l'historique")
     bt.add_argument("--symbols", nargs="*")
     bt.add_argument("--candles", type=int, default=3000)
-    bt.add_argument("--tp-r", type=float, default=2.0)
+    bt.add_argument("--mode", choices=("repli", "radar"), default="repli")
+    bt.add_argument("--tp-r", type=float, default=0.0)
     bt.add_argument("--max-bars", type=int, default=72)
     bt.add_argument("--fee", type=float, default=0.1)
     bt.set_defaults(fn=cmd_backtest)
     cp = sub.add_parser("compare", help="comparer des variantes, avec validation sur donnees jamais vues")
+    cp.add_argument("--mode", choices=("repli", "radar"), default="repli")
     cp.add_argument("--symbols", nargs="*")
     cp.add_argument("--candles", type=int, default=8000)
     cp.add_argument("--train-ratio", type=float, default=0.6)

@@ -70,7 +70,7 @@ def test_scan_writes_status_and_signal_history(monkeypatch, tmp_path):
             return context.MarketContext(market_change_24h=1.5, btc_dominance=59.4,
                                          sources=["CoinGecko"])
 
-    cfg = dict(cli.DEFAULTS, symbols=["TESTUSDT"], btc_filter=False,
+    cfg = dict(cli.DEFAULTS, symbols=["TESTUSDT"], btc_filter=False, radar=False,
                state_file=str(tmp_path / "state.json"),
                status_file=str(tmp_path / "status.json"),
                signals_file=str(tmp_path / "signals.json"))

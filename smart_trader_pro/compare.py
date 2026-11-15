@@ -16,15 +16,8 @@ from itertools import product
 from typing import Callable, Dict, List, Optional
 
 from . import backtest
+from . import strategy as _strategy
 from .data import Candles
-from .strategy import Params, prepare, warmup
-
-GRID = {
-    "htf_factor": (4, 24),          # tendance lue en 4 h ou a la journee
-    "min_score": (70, 80),
-    "stop_min_atr": (1.0, 2.0),
-    "tp_r": (1.5, 2.0, 3.0),
-}
 
 MIN_TRAIN_TRADES = 30
 MIN_TEST_TRADES = 30
@@ -34,25 +27,24 @@ MIN_TEST_PF = 1.15
 
 @dataclass
 class Variant:
-    params: Params
+    params: object
     tp_r: float
     train: backtest.Report
     test: backtest.Report
+    engine: object = _strategy
 
     @property
     def label(self) -> str:
-        fond = "jour" if self.params.htf_factor == 24 else f"{self.params.htf_factor}h"
-        return (f"fond {fond:<4} score {self.params.min_score} "
-                f"stop {self.params.stop_min_atr:g}ATR obj {self.tp_r:g}R")
+        return self.engine.label(self.params, self.tp_r)
 
-    def is_default(self, base: Params) -> bool:
-        return self.params == base and self.tp_r == 2.0
+    def is_default(self, base) -> bool:
+        return self.params == base and self.tp_r == self.engine.DEFAULT_TP
 
 
-def variants(base: Params) -> List[tuple]:
-    keys = list(GRID)
+def variants(base, engine=_strategy) -> List[tuple]:
+    keys = list(engine.GRID)
     out = []
-    for values in product(*(GRID[k] for k in keys)):
+    for values in product(*(engine.GRID[k] for k in keys)):
         v = dict(zip(keys, values))
         tp_r = v.pop("tp_r")
         out.append((replace(base, **v), tp_r))
@@ -63,32 +55,30 @@ def split_index(c: Candles, train_ratio: float) -> int:
     return int(len(c) * train_ratio)
 
 
-def run(candles: List[Candles], btc: Optional[Candles], base: Params,
+def run(candles: List[Candles], btc: Optional[Candles], base,
         train_ratio: float = 0.6, fee_pct: float = 0.1, max_bars: int = 72,
-        progress: Optional[Callable[[str], None]] = None) -> List[Variant]:
-    """Mesure chaque variante sur les deux parties. `btc` active le filtre BTC."""
+        progress: Optional[Callable[[str], None]] = None,
+        engine=_strategy) -> List[Variant]:
+    """Mesure chaque variante sur les deux parties. `btc` sert au filtre de marche
+    (repli) ou a la force relative (radar)."""
     feats: Dict[tuple, object] = {}
-    market: Dict[int, Optional[Dict[int, int]]] = {}
+    market: Dict[tuple, Optional[Dict[int, int]]] = {}
     results: List[Variant] = []
-    for params, tp_r in variants(base):
-        hf = params.htf_factor
-        if hf not in market:
-            market[hf] = None
-            if btc is not None:
-                fb = prepare(btc, params)
-                market[hf] = {btc.ts[i]: fb.trend(i, params.htf_slope_bars)
-                              for i in range(len(btc))}
+    for params, tp_r in variants(base, engine):
+        fk = engine.feature_key(params)
+        if fk not in market:
+            market[fk] = engine.market_filter(btc, params)
         train, test = [], []
         for c in candles:
-            key = (c.symbol, hf)
+            key = (c.symbol,) + fk
             if key not in feats:
-                feats[key] = prepare(c, params)
+                feats[key] = engine.prepare(c, params, btc=btc)
             cut = split_index(c, train_ratio)
             common = dict(tp_r=tp_r, max_bars=max_bars, fee_pct=fee_pct,
-                          market_trend=market[hf], features=feats[key])
+                          market_trend=market[fk], features=feats[key], engine=engine)
             train.append(backtest.run(c, params, hi=cut, **common))
             test.append(backtest.run(c, params, lo=cut, **common))
-        v = Variant(params, tp_r, backtest.merge(train), backtest.merge(test))
+        v = Variant(params, tp_r, backtest.merge(train), backtest.merge(test), engine)
         results.append(v)
         if progress:
             progress(v.label)
@@ -110,6 +100,6 @@ def holds(v: Variant) -> bool:
             and t.profit_factor >= MIN_TEST_PF)
 
 
-def needed_candles(base: Params) -> int:
+def needed_candles(base, engine=_strategy) -> int:
     """Historique minimal pour que les deux parties aient de la matiere."""
-    return max(warmup(p) for p, _ in variants(base)) + 2000
+    return max(engine.warmup(p) for p, _ in variants(base, engine)) + 2000
