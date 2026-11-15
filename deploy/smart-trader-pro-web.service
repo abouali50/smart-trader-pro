@@ -1,0 +1,21 @@
+[Unit]
+Description=Smart Trader Pro - tableau de bord web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=smarttrader
+WorkingDirectory=/opt/smart-trader-pro
+EnvironmentFile=-/opt/smart-trader-pro/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/smart-trader-pro/.venv/bin/python -m smart_trader_pro web
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

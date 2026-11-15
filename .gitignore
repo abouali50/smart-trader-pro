@@ -5,3 +5,6 @@ __pycache__/
 config.json
 state.json
 .pytest_cache/
+status.json
+signals.json
+*.tmp

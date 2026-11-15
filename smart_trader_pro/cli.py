@@ -1,4 +1,4 @@
-"""Ligne de commande : scan, watch, backtest, compare, test-telegram.
+"""Ligne de commande : scan, watch, backtest, compare, web, test-telegram.
 
 Auteur : Aziz Mernissi
 """
@@ -30,6 +30,8 @@ DEFAULTS = {
     "market_drop_block_pct": 5,
     "cooldown_hours": 12,
     "state_file": "state.json",
+    "status_file": "status.json",
+    "signals_file": "signals.json",
     "strategy": {},
 }
 
@@ -57,6 +59,34 @@ def save_state(path: str, state: Dict[str, int]) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh)
     os.replace(tmp, path)
+
+
+def write_json(path: str, data) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def load_list(path: str) -> list:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def row_dict(ev, blocked: str) -> dict:
+    """Une ligne du tableau de bord."""
+    return {
+        "symbol": ev.symbol, "price": ev.price, "score": ev.score, "trend": ev.trend,
+        "signal": bool(ev.is_signal and not blocked),
+        "suspended": bool(ev.is_signal and blocked),
+        "families": {k: list(v) for k, v in ev.families.items()},
+        "reasons": ev.reasons, "missing": ev.missing,
+        "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2, "ts": ev.ts,
+    }
 
 
 def resolve_symbols(cfg: dict, md: MarketData) -> List[str]:
@@ -95,7 +125,7 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
     if blocked:
         log(f"Signaux suspendus : {blocked}.")
 
-    rows, sent = [], 0
+    rows, sent, new_signals = [], 0, []
     for sym in resolve_symbols(cfg, md):
         try:
             c = md.klines(sym, interval, need)
@@ -121,7 +151,32 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
             log(f"{sym} : echec de l'envoi Telegram")
         state[sym] = ev.ts
         sent += 1
+        new_signals.append({
+            "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
+            "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+        })
     save_state(cfg["state_file"], state)
+    if new_signals:
+        history = (new_signals + load_list(cfg["signals_file"]))[:100]
+        write_json(cfg["signals_file"], history)
+    write_json(cfg["status_file"], {
+        "version": __version__,
+        "updated": int(time.time() * 1000),
+        "interval": interval,
+        "min_score": p.min_score,
+        "trend_unit": "jour" if p.htf_factor * INTERVAL_MS[interval] == 86_400_000
+                      else f"x{p.htf_factor}",
+        "blocked": blocked,
+        "context": {
+            "market_change_24h": ctx.market_change_24h,
+            "btc_dominance": ctx.btc_dominance,
+            "fear_greed": ctx.fear_greed,
+            "fear_greed_label": ctx.fear_greed_label,
+            "sources": ctx.sources,
+        },
+        "rows": [row_dict(ev, blocked) for ev in
+                 sorted(rows, key=lambda e: e.score, reverse=True)],
+    })
 
     rows.sort(key=lambda e: e.score, reverse=True)
     print(f"{'Paire':<12}{'Prix':>14}{'Score':>7}  {'Fond':<8}Etat")
@@ -292,6 +347,14 @@ def cmd_compare(args) -> None:
               "Ne suis pas ses signaux avec de l'argent reel.")
 
 
+def cmd_web(args) -> None:
+    from . import web
+    cfg = load_config(args.config)
+    port = args.port or int(os.environ.get("DASHBOARD_PORT", "8765"))
+    log(f"Tableau de bord sur le port {port}.")
+    web.serve(cfg["status_file"], cfg["signals_file"], port=port)
+
+
 def cmd_test_telegram(args) -> None:
     tg = Telegram()
     if not tg.enabled:
@@ -321,6 +384,9 @@ def main(argv=None) -> None:
     cp.add_argument("--fee", type=float, default=0.1)
     cp.add_argument("--top", type=int, default=8)
     cp.set_defaults(fn=cmd_compare)
+    wb = sub.add_parser("web", help="tableau de bord web")
+    wb.add_argument("--port", type=int, default=0)
+    wb.set_defaults(fn=cmd_web)
     sub.add_parser("test-telegram", help="verifier Telegram").set_defaults(fn=cmd_test_telegram)
     args = ap.parse_args(argv)
     args.fn(args)

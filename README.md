@@ -27,6 +27,22 @@ Voir ce qu'il fait :
 journalctl -u smart-trader-pro -f
 ```
 
+## Tableau de bord web
+
+Après l'installation, ouvre dans ton navigateur (ordinateur ou téléphone) :
+
+```
+http://ADRESSE_DU_SERVEUR:8765
+```
+
+La page montre le contexte du marché, les paires surveillées avec leur score
+et les derniers signaux. Touche une ligne pour voir le détail des conditions.
+Elle se met à jour toute seule chaque minute.
+
+La page est en lecture seule : elle n'accepte aucune saisie et ne sert que
+le tableau. Elle est toutefois visible par quiconque connaît l'adresse.
+Pour changer de port, renseigne `DASHBOARD_PORT` dans `.env`.
+
 ## Recevoir les signaux sur Telegram
 
 1. Dans Telegram, écris à `@BotFather`, envoie `/newbot` et garde le jeton.
@@ -124,6 +140,7 @@ python -m smart_trader_pro scan        # une passe
 python -m smart_trader_pro watch       # surveillance continue
 python -m smart_trader_pro backtest    # test sur l'historique
 python -m smart_trader_pro compare     # variantes, validées sur données jamais vues
+python -m smart_trader_pro web         # tableau de bord web
 python -m pytest                  # tests du code
 ```
 

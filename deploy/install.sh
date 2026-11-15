@@ -47,14 +47,23 @@ chmod 600 "$APP_DIR/.env"
 
 echo "==> Service systemd"
 sed "s#/opt/smart-trader-pro#$APP_DIR#g" "$APP_DIR/deploy/smart-trader-pro.service" > /etc/systemd/system/smart-trader-pro.service
+sed "s#/opt/smart-trader-pro#$APP_DIR#g" "$APP_DIR/deploy/smart-trader-pro-web.service" > /etc/systemd/system/smart-trader-pro-web.service
 systemctl daemon-reload
-systemctl enable smart-trader-pro >/dev/null 2>&1
-systemctl restart smart-trader-pro
+systemctl enable smart-trader-pro smart-trader-pro-web >/dev/null 2>&1
+systemctl restart smart-trader-pro smart-trader-pro-web
+
+WEB_PORT="$(grep -E '^DASHBOARD_PORT=[0-9]+$' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2 || true)"
+WEB_PORT="${WEB_PORT:-8765}"
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow "$WEB_PORT"/tcp >/dev/null
+fi
+SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
 cat <<MSG
 
 Smart Trader Pro est installe et tourne.
 
+  Tableau de bord web        : http://${SERVER_IP:-ADRESSE_DU_SERVEUR}:$WEB_PORT
   Voir les signaux en direct : journalctl -u smart-trader-pro -f
   Reglages                   : nano $APP_DIR/config.json
   Telegram, CoinMarketCap    : nano $APP_DIR/.env
