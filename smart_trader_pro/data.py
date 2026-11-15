@@ -27,7 +27,7 @@ INTERVAL_MS = {
 
 _EXCLUDED_BASES = {
     "USDC", "FDUSD", "TUSD", "DAI", "USDP", "BUSD", "EUR", "EURI", "AEUR",
-    "USD1", "XUSD", "BFUSD", "USDE", "PAXG", "WBTC", "WBETH", "BNSOL",
+    "USD1", "XUSD", "BFUSD", "USDE", "PAXG", "XAUT", "WBTC", "WBETH", "BNSOL",
 }
 _EXCLUDED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 
