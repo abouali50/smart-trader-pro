@@ -115,6 +115,23 @@ sudo -u smarttrader .venv/bin/python -m smart_trader_pro backtest --mode radar
 sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar
 ```
 
+## Actualités et autres plateformes
+
+- **Actualités** : les titres des dernières 24 h de CoinDesk, Cointelegraph et
+  Decrypt sont affichés sur la page et rattachés aux cryptos qu'ils citent.
+  Les titres d'une crypto sont joints à ses alertes.
+- **Autres plateformes** : quand le radar détecte un départ sur Binance, il
+  vérifie si le volume s'emballe aussi sur Coinbase, OKX et Gate.io.
+
+Ces deux éléments sont du contexte : ils n'entrent pas dans le score, pour
+que le backtest reste comparable. Une source en panne est ignorée.
+
+Pour tester le radar sur plus de paires que les 25 premières :
+
+```bash
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar --count 80
+```
+
 ## Comment le score des replis est calculé
 
 | Famille | Points | Indicateurs |
@@ -183,6 +200,9 @@ une garantie.
 | `radar_min_volume` | 3000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit balayée |
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes radar sur une paire |
 | `radar_strategy.min_score` | 70 | seuil du radar |
+| `exclude` | actions tokenisées | paires que le radar ignore |
+| `news` | `true` | charge les actualités |
+| `exchanges` | `true` | vérifie le volume sur Coinbase, OKX et Gate.io |
 
 ## Utilisation manuelle
 

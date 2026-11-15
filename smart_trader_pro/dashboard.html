@@ -85,6 +85,14 @@
 
   .sigs .line { display: grid; grid-template-columns: 1.1fr 1.3fr repeat(3, 1fr) .6fr; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 14px; align-items: center; }
   .sigs .line:last-child { border-bottom: 0; }
+  .news a { display: block; padding: 11px 14px; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+  .news a:last-child { border-bottom: 0; }
+  .news a:hover, .news a:focus-visible { background: var(--panel2); outline: none; }
+  .news .meta { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .news .coin { color: var(--accent); border: 1px solid rgba(76, 194, 255, .35); border-radius: 999px; padding: 0 7px; }
+  .extra { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .extra b { color: var(--text); font-weight: 600; }
+  .extra div { margin-top: 3px; }
   .empty { padding: 18px 14px; color: var(--muted); }
   footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
 
@@ -131,6 +139,9 @@
     <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">Fond</div><div class="right">État</div></div>
     <div id="rows"><div class="empty">Chargement…</div></div>
   </div>
+
+  <h2>Actualités des dernières 24 h</h2>
+  <div class="table news" id="news"><div class="empty">Chargement…</div></div>
 
   <h2>Derniers signaux</h2>
   <div class="table sigs" id="sigs"><div class="empty">Chargement…</div></div>
@@ -255,6 +266,20 @@
     (r.reasons || []).forEach(function (x) { cols.appendChild(el("div", "y", x)); });
     (r.missing || []).forEach(function (x) { cols.appendChild(el("div", "n", x)); });
     d.appendChild(cols);
+    if (r.exchanges && r.exchanges.length) {
+      var ex = el("div", "extra");
+      var known = r.exchanges.filter(function (x) { return x.ratio !== null && x.ratio !== undefined; });
+      var okc = known.filter(function (x) { return x.confirmed; }).length;
+      ex.appendChild(el("b", "", known.length ? "Autres plateformes : volume confirmé sur " + okc + " sur " + known.length : "Autres plateformes : aucune donnée"));
+      known.forEach(function (x) { ex.appendChild(el("div", "", x.name + " : volume ×" + x.ratio.toFixed(1).replace(".", ","))); });
+      d.appendChild(ex);
+    }
+    if (r.news && r.news.length) {
+      var nw = el("div", "extra");
+      nw.appendChild(el("b", "", "Actualités récentes"));
+      r.news.forEach(function (x) { nw.appendChild(el("div", "", x.source + " : " + x.title)); });
+      d.appendChild(nw);
+    }
     item.appendChild(d);
     return item;
   }
@@ -321,6 +346,22 @@
         if (!rl.length) rbox.replaceChildren(el("div", "empty", "Aucune paire analysée par le radar pour l'instant."));
         else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, "radar"); }));
       }
+    }
+
+    var nbox = $("news"), nl = (s && s.news) || [];
+    if (!nl.length) {
+      nbox.replaceChildren(el("div", "empty", "Aucune actualité chargée pour l'instant."));
+    } else {
+      nbox.replaceChildren.apply(nbox, nl.map(function (x) {
+        var a = el("a");
+        if (/^https:\/\//.test(x.link)) { a.href = x.link; a.target = "_blank"; a.rel = "noopener noreferrer"; }
+        a.appendChild(el("div", "", x.title));
+        var m = el("div", "meta");
+        m.appendChild(el("span", "", x.source + " · " + ago(x.ts)));
+        (x.coins || []).slice(0, 4).forEach(function (cn) { m.appendChild(el("span", "coin", cn)); });
+        a.appendChild(m);
+        return a;
+      }));
     }
 
     var box = $("sigs");
