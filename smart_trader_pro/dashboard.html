@@ -282,6 +282,12 @@
     (r.reasons || []).forEach(function (x) { cols.appendChild(el("div", "y", x)); });
     (r.missing || []).forEach(function (x) { cols.appendChild(el("div", "n", x)); });
     d.appendChild(cols);
+    if (r.levels && r.levels.lines && r.levels.lines.length) {
+      var lv2 = el("div", "extra");
+      lv2.appendChild(el("b", "", "Niveaux et flux d'ordres"));
+      r.levels.lines.forEach(function (x) { lv2.appendChild(el("div", "", x)); });
+      d.appendChild(lv2);
+    }
     if (r.exchanges && r.exchanges.length) {
       var ex = el("div", "extra");
       var known = r.exchanges.filter(function (x) { return x.ratio !== null && x.ratio !== undefined; });

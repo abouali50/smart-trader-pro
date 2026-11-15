@@ -141,6 +141,22 @@ sudo -u smarttrader .venv/bin/python -m smart_trader_pro backtest --mode radar
 sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar
 ```
 
+## Niveaux et flux d'ordres
+
+Pour chaque paire, la page et les alertes indiquent :
+
+| Mesure | Ce qu'elle dit |
+| --- | --- |
+| VWAP (24 bougies) | prix moyen pondéré par le volume ; au-dessus, les acheteurs récents sont gagnants |
+| VWAP ancré | le même calcul démarré au dernier creux : le prix de revient moyen depuis ce creux |
+| Profil de volume | le POC (prix le plus échangé) et la zone de valeur (70 % du volume) sur 120 bougies |
+| Flux d'ordres | la part du volume achetée au marché sur la dernière bougie, et le delta cumulé sur 24 bougies |
+| Carnet d'ordres | la part des achats en attente à ±1 % du prix, mesurée en direct |
+
+Le profil de volume est estimé à partir des bougies, pas de chaque transaction.
+Le carnet d'ordres n'est lu que pour les signaux et les cinq premières lignes
+du radar. Ces mesures sont du contexte : elles n'entrent pas dans le score.
+
 ## Actualités et autres plateformes
 
 - **Actualités** : les titres des dernières 24 h de CoinDesk, Cointelegraph et
@@ -232,6 +248,7 @@ une garantie.
 | `wide_min_volume` | 300000 | volume minimal sur 24 h, en dollars |
 | `wide_min_score` | 70 | seuil d'alerte du marché large |
 | `exclude` | actions tokenisées | paires que le radar ignore |
+| `levels` | `true` | calcule VWAP, profil de volume et flux d'ordres |
 | `news` | `true` | charge les actualités |
 | `exchanges` | `true` | vérifie le volume sur Coinbase, OKX et Gate.io |
 

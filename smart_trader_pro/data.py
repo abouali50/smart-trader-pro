@@ -130,6 +130,22 @@ class MarketData:
                 setattr(out, name, getattr(out, name)[-total:])
         return out
 
+    def book_imbalance(self, symbol: str, pct: float = 1.0) -> Optional[float]:
+        """Part des achats dans le carnet a +/- `pct` % du prix (0 a 1), ou None."""
+        try:
+            d = self._get("/api/v3/depth", {"symbol": symbol, "limit": 500})
+            bids = [(float(p), float(q)) for p, q in d.get("bids", [])]
+            asks = [(float(p), float(q)) for p, q in d.get("asks", [])]
+            if not bids or not asks:
+                return None
+            mid = (bids[0][0] + asks[0][0]) / 2
+            lo, hi = mid * (1 - pct / 100), mid * (1 + pct / 100)
+            b = sum(p * q for p, q in bids if p >= lo)
+            a = sum(p * q for p, q in asks if p <= hi)
+            return b / (a + b) if a + b > 0 else None
+        except Exception:                   # panne, paire inconnue, format inattendu
+            return None
+
     def top_symbols(self, quote: str = "USDT", count: int = 20,
                     min_quote_volume: float = 20_000_000) -> List[str]:
         """Paires les plus liquides sur 24 h, hors stablecoins et jetons a levier."""

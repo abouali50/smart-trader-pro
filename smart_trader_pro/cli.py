@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, backtest, breakout, compare, strategy, wide
+from . import __version__, backtest, breakout, compare, levels, strategy, wide
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .exchanges import Exchanges, summary_lines
@@ -40,6 +40,7 @@ DEFAULTS = {
     "wide": True,
     **wide.DEFAULTS,
     "exclude": ["MSTRBUSDT", "CRCLBUSDT", "NVDABUSDT"],   # actions tokenisees
+    "levels": True,
     "news": True,
     "exchanges": True,
     "status_file": "status.json",
@@ -154,6 +155,7 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         log(f"Signaux suspendus : {blocked}.")
 
     rows, sent, new_signals = [], 0, []
+    level_info: Dict[str, dict] = {}
     symbols = resolve_symbols(cfg, md)
     news_items: list = []
     if news is not None and cfg["news"]:
@@ -178,11 +180,17 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         if ev is None:
             continue
         rows.append(ev)
+        if cfg["levels"]:
+            book = md.book_imbalance(sym) if (ev.is_signal and not blocked) else None
+            level_info[sym] = levels.analyze(c, len(c) - 1, book)
         if not ev.is_signal or blocked:
             continue
         if ev.ts - state.get(sym, 0) < cooldown_ms:
             continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"])
+        if sym in level_info:
+            text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(
+                f"  {l}" for l in level_info[sym]["lines"])
         extra = ctx.lines(sym)
         if extra:
             text += "\n\nContexte :\n" + "\n".join(f"  {l}" for l in extra)
@@ -224,7 +232,7 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
             "fear_greed_label": ctx.fear_greed_label,
             "sources": ctx.sources,
         },
-        "rows": [row_dict(ev, blocked) for ev in
+        "rows": [dict(row_dict(ev, blocked), levels=level_info.get(ev.symbol)) for ev in
                  sorted(rows, key=lambda e: e.score, reverse=True)],
         "news": [it.as_dict() for it in news_items[:14]],
         "radar": {
@@ -262,7 +270,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
     except RuntimeError as exc:
         log(f"Radar indisponible : {exc}")
         return [], 0, 0
-    found, sent, confirmed = [], 0, {}
+    found, sent, confirmed, series = [], 0, {}, {}
     for sym in symbols:
         try:
             c = md.klines(sym, interval, need)
@@ -276,6 +284,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             continue
         change = (c.close[i] / c.close[i - 24] - 1) * 100 if i >= 24 else None
         found.append((ev, change))
+        series[sym] = c
         key = "radar:" + sym
         if ev.is_signal and exchanges is not None:
             confirmed[sym] = exchanges.confirmations(sym)
@@ -283,6 +292,9 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"],
                              title="RADAR D'EXPLOSION")
+        if cfg["levels"]:
+            info = levels.analyze(c, i, md.book_imbalance(sym))
+            text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in info["lines"])
         if sym in confirmed:
             text += "\n\n" + "\n".join(summary_lines(confirmed[sym]))
         extra = ctx.lines(sym)
@@ -303,9 +315,13 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         })
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
-    for ev, change in found[:15]:
+    for rank, (ev, change) in enumerate(found[:15]):
         row = row_dict(ev, "")
         row["change_24h"] = change
+        if cfg["levels"]:
+            cs = series[ev.symbol]
+            book = md.book_imbalance(ev.symbol) if (rank < 5 or ev.is_signal) else None
+            row["levels"] = levels.analyze(cs, len(cs) - 1, book)
         row["exchanges"] = confirmed.get(ev.symbol)
         row["news"] = [it.as_dict() for it in for_coin(list(news_items), ev.symbol)]
         rows.append(row)

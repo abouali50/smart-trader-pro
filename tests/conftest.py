@@ -29,3 +29,16 @@ def make_candles(n=1500, seed=7, drift=0.0004, symbol="TESTUSDT"):
 @pytest.fixture
 def candles():
     return make_candles()
+
+
+REAL_BOOK_IMBALANCE = None
+
+
+@pytest.fixture(autouse=True)
+def no_live_order_book(monkeypatch):
+    """Les tests ne touchent jamais le reseau : le carnet d'ordres est neutralise par defaut."""
+    from smart_trader_pro.data import MarketData
+    global REAL_BOOK_IMBALANCE
+    if REAL_BOOK_IMBALANCE is None:
+        REAL_BOOK_IMBALANCE = MarketData.book_imbalance
+    monkeypatch.setattr(MarketData, "book_imbalance", lambda self, sym, pct=1.0: None)
