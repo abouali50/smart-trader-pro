@@ -43,6 +43,19 @@ La page est en lecture seule : elle n'accepte aucune saisie et ne sert que
 le tableau. Elle est toutefois visible par quiconque connaît l'adresse.
 Pour changer de port, renseigne `DASHBOARD_PORT` dans `.env`.
 
+### Avec un nom de domaine et HTTPS
+
+Si le serveur utilise déjà Caddy, crée d'abord un enregistrement DNS de type
+`A` pointant vers l'adresse du serveur, puis lance :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abouali50/smart-trader-pro/main/deploy/domain.sh | sudo bash -s -- trader.exemple.com
+```
+
+Le script ajoute un bloc à la fin du Caddyfile après en avoir fait une
+sauvegarde, et restaure celle-ci si Caddy refuse la configuration. Une fois
+le site en ligne en HTTPS, l'accès direct par le port est fermé.
+
 ## Recevoir les signaux sur Telegram
 
 1. Dans Telegram, écris à `@BotFather`, envoie `/newbot` et garde le jeton.

@@ -351,8 +351,9 @@ def cmd_web(args) -> None:
     from . import web
     cfg = load_config(args.config)
     port = args.port or int(os.environ.get("DASHBOARD_PORT", "8765"))
-    log(f"Tableau de bord sur le port {port}.")
-    web.serve(cfg["status_file"], cfg["signals_file"], port=port)
+    host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
+    log(f"Tableau de bord sur {host}:{port}.")
+    web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port)
 
 
 def cmd_test_telegram(args) -> None:
