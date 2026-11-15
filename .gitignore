@@ -8,3 +8,5 @@ state.json
 status.json
 signals.json
 *.tmp
+wide.json
+wide_state.json

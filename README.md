@@ -89,6 +89,32 @@ signal à elles seules.
 Si le marché global perd plus de `market_drop_block_pct` % en 24 h, les
 signaux sont suspendus. Une source en panne est ignorée, le scanner continue.
 
+## Le marché large : 4000 cryptos
+
+Binance ne cote que quelques centaines de cryptos. Toutes les 15 minutes, le
+scanner balaie les 4000 premières par capitalisation via CoinGecko et cherche
+celles qui se réveillent : volume très supérieur à leurs habitudes et prix en
+hausse sur l'heure, sans être déjà envolées.
+
+- Une crypto doit échanger au moins `wide_min_volume` dollars par jour
+  (300 000 par défaut) pour être retenue : en dessous, on ne peut ni entrer
+  ni sortir proprement.
+- Le scanner apprend d'abord les habitudes de chaque crypto : il lui faut
+  environ une heure avant la première alerte.
+- Chaque alerte « RÉVEIL » indique où la crypto se négocie.
+- **Bilan automatique** : chaque réveil signalé est suivi, et son résultat est
+  figé 24 h plus tard. La page affiche la moyenne et la part de réveils en
+  hausse. Cette méthode n'a pas pu être testée sur le passé ; ce bilan est
+  la seule preuve de ce qu'elle vaut.
+
+Limites : CoinGecko fournit un volume cumulé sur 24 h, donc un réveil est vu
+avec un léger retard, et aucun stop n'est calculé. Les petites cryptos sont
+peu liquides et souvent manipulées.
+
+Sans clé, le balayage utilise l'accès public de CoinGecko, lent et parfois
+limité. Une clé payante (`COINGECKO_PRO_API_KEY` dans `.env`) le rend rapide
+et fiable.
+
 ## Le radar d'explosion
 
 Un mouvement violent commence presque toujours par une cassure accompagnée
@@ -200,6 +226,11 @@ une garantie.
 | `radar_min_volume` | 3000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit balayée |
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes radar sur une paire |
 | `radar_strategy.min_score` | 70 | seuil du radar |
+| `wide` | `true` | active le balayage du marché large |
+| `wide_pages` | 16 | pages de 250 cryptos (16 = 4000) |
+| `wide_interval_min` | 15 | minutes entre deux balayages |
+| `wide_min_volume` | 300000 | volume minimal sur 24 h, en dollars |
+| `wide_min_score` | 70 | seuil d'alerte du marché large |
 | `exclude` | actions tokenisées | paires que le radar ignore |
 | `news` | `true` | charge les actualités |
 | `exchanges` | `true` | vérifie le volume sur Coinbase, OKX et Gate.io |

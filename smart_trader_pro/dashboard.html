@@ -62,6 +62,11 @@
   .pill.up { color: var(--up); border-color: rgba(53, 208, 138, .4); }
   .pill.down { color: var(--down); border-color: rgba(255, 107, 107, .4); }
   .pill.sig { color: #06281a; background: var(--up); border-color: var(--up); font-weight: 650; }
+  .pill.sig.wide { background: var(--warn); border-color: var(--warn); color: #2b1d00; }
+  .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0 12px; }
+  .facts .card { background: var(--panel); }
+  .facts .v { font-size: 15px; }
+  .detail a { color: var(--accent); }
   .pill.sig.radar { background: var(--accent); border-color: var(--accent); color: #04202e; }
   .chg { font-variant-numeric: tabular-nums; font-size: 13px; }
   .pill.sus { color: var(--warn); border-color: rgba(245, 185, 66, .5); }
@@ -103,7 +108,7 @@
     .row > .price, .head > .price, .row > .trend, .head > .trend { display: none; }
     .fams, .fams.six { grid-template-columns: 1fr 1fr; }
     .cols { grid-template-columns: 1fr; }
-    .levels { grid-template-columns: 1fr 1fr; }
+    .levels, .facts { grid-template-columns: 1fr 1fr; }
     .sigs .line { grid-template-columns: 1fr 1fr; }
     .sigs .line .opt { display: none; }
   }
@@ -127,7 +132,18 @@
 
   <div class="banner" id="banner"><b id="bT">Chargement…</b><span id="bS"></span></div>
 
-  <h2>Radar d'explosion</h2>
+  <h2>Marché large : petites cryptos qui se réveillent</h2>
+  <div class="note" id="wideNote">Chargement…</div>
+  <div class="table">
+    <div class="head"><div>Crypto</div><div class="price right">Prix</div><div>Score</div><div class="trend">1 h</div><div class="right">État</div></div>
+    <div id="wide"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <h2>Bilan des réveils signalés</h2>
+  <div class="note" id="trackNote"></div>
+  <div class="table sigs" id="track"><div class="empty">Chargement…</div></div>
+
+  <h2>Radar d'explosion (Binance)</h2>
   <div class="note" id="radarNote">Chargement…</div>
   <div class="table">
     <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">24 h</div><div class="right">État</div></div>
@@ -284,7 +300,112 @@
     return item;
   }
 
+  function money(x) {
+    if (x === null || x === undefined) return "—";
+    if (x >= 1e9) return (x / 1e9).toFixed(1).replace(".", ",") + " Md $";
+    if (x >= 1e6) return (x / 1e6).toFixed(1).replace(".", ",") + " M $";
+    if (x >= 1e3) return (x / 1e3).toFixed(0) + " k $";
+    return x.toFixed(0) + " $";
+  }
+  function signedSpan(x) {
+    var sp = el("span", "chg", (x === null || x === undefined) ? "—" : pct(x, true));
+    if (x !== null && x !== undefined) sp.style.color = x >= 0 ? "var(--up)" : "var(--down)";
+    return sp;
+  }
+  function wideRow(r, minScore) {
+    var key = "wide:" + r.id;
+    var item = el("div", "item" + (open[key] ? " open" : ""));
+    var row = el("button", "row");
+    row.type = "button";
+    var sym = el("div", "sym");
+    sym.appendChild(document.createTextNode(r.symbol));
+    sym.appendChild(el("small", "", " · " + r.name));
+    row.appendChild(sym);
+    row.appendChild(el("div", "price num right", price(r.price)));
+    var sc = el("div", "score");
+    sc.appendChild(bar(r.score, 100, minScore, r.score >= minScore));
+    sc.appendChild(el("b", "", String(r.score)));
+    row.appendChild(sc);
+    var t = el("div", "trend");
+    t.appendChild(signedSpan(r.chg_1h));
+    row.appendChild(t);
+    var st = el("div", "right");
+    st.appendChild(el("span", r.alert ? "pill sig wide" : "pill", r.alert ? "RÉVEIL" : "attente"));
+    row.appendChild(st);
+    row.addEventListener("click", function () {
+      open[key] = !open[key];
+      item.classList.toggle("open", open[key]);
+    });
+    item.appendChild(row);
+    var d = el("div", "detail");
+    var facts = el("div", "facts");
+    [["Sur 24 h", r.chg_24h === null || r.chg_24h === undefined ? "—" : pct(r.chg_24h, true)],
+     ["Sur 7 j", r.chg_7d === null || r.chg_7d === undefined ? "—" : pct(r.chg_7d, true)],
+     ["Volume 24 h", money(r.volume) + (r.vol_x ? " (×" + r.vol_x.toFixed(1).replace(".", ",") + ")" : "")],
+     ["Capitalisation", money(r.mcap) + (r.rank ? " · rang " + r.rank : "")]].forEach(function (p) {
+      var c = el("div", "card");
+      c.appendChild(el("div", "k", p[0]));
+      c.appendChild(el("div", "v num", p[1]));
+      facts.appendChild(c);
+    });
+    d.appendChild(facts);
+    var cols = el("div", "cols");
+    (r.reasons || []).forEach(function (x) { cols.appendChild(el("div", "y", x)); });
+    if (r.vol_x === null || r.vol_x === undefined) cols.appendChild(el("div", "n", "habitudes de volume encore en apprentissage"));
+    d.appendChild(cols);
+    var ex = el("div", "extra");
+    if (r.exchanges && r.exchanges.length) ex.appendChild(el("div", "", "Où la trouver : " + r.exchanges.join(", ")));
+    var a = el("a", "", "Fiche CoinGecko");
+    a.href = "https://www.coingecko.com/fr/pieces/" + encodeURIComponent(r.id);
+    a.target = "_blank"; a.rel = "noopener noreferrer";
+    var line = el("div"); line.appendChild(a); ex.appendChild(line);
+    d.appendChild(ex);
+    item.appendChild(d);
+    return item;
+  }
+  function renderWide(w) {
+    var box = $("wide"), tbox = $("track");
+    if (!w) {
+      $("wideNote").textContent = "Le premier balayage du marché large n'est pas encore terminé (il prend quelques minutes).";
+      box.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      $("trackNote").textContent = "";
+      tbox.replaceChildren(el("div", "empty", "Aucun réveil signalé pour l'instant."));
+      return;
+    }
+    var note = (w.scanned || 0) + " cryptos balayées via CoinGecko · " + (w.eligible || 0) + " assez liquides · balayage " + ago(w.updated) + " · seuil " + w.min_score + "/100";
+    if (w.learning) note += " · " + w.learning + " encore en apprentissage (il faut environ 1 h d'historique)";
+    if (w.errors && w.errors.length) note += " · balayage incomplet";
+    $("wideNote").textContent = note;
+    var rows = w.rows || [];
+    if (!rows.length) box.replaceChildren(el("div", "empty", "Aucune crypto à afficher."));
+    else box.replaceChildren.apply(box, rows.map(function (r) { return wideRow(r, w.min_score); }));
+
+    var sm = w.summary || {}, al = w.alerts || [];
+    $("trackNote").textContent = sm.count
+      ? sm.count + " réveils arrivés à 24 h · résultat moyen " + pct(sm.average, true) + " · " + Math.round(sm.positive_pct) + " % en hausse. C'est ce bilan qui dira si ces alertes valent quelque chose."
+      : "Chaque réveil signalé est suivi : son résultat est figé 24 h après l'alerte. Le bilan se remplira avec le temps.";
+    if (!al.length) { tbox.replaceChildren(el("div", "empty", "Aucun réveil signalé pour l'instant.")); return; }
+    tbox.replaceChildren.apply(tbox, al.slice(0, 20).map(function (x) {
+      var l = el("div", "line");
+      var nm = el("div", "sym"); nm.appendChild(document.createTextNode(x.symbol));
+      l.appendChild(nm);
+      l.appendChild(el("div", "num", when(x.ts)));
+      l.appendChild(el("div", "num opt", "Alerte " + price(x.price)));
+      var now = el("div", "num opt");
+      now.appendChild(document.createTextNode("Depuis "));
+      now.appendChild(signedSpan(x.last_price ? (x.last_price / x.price - 1) * 100 : null));
+      l.appendChild(now);
+      var res = el("div", "num");
+      res.appendChild(document.createTextNode("À 24 h "));
+      res.appendChild(x.result_24h === null || x.result_24h === undefined ? el("span", "chg", "en cours") : signedSpan(x.result_24h));
+      l.appendChild(res);
+      l.appendChild(el("div", "num right opt", x.score + "/100"));
+      return l;
+    }));
+  }
+
   function render(data) {
+    renderWide(data.wide);
     var s = data.status, sig = data.signals || [];
     var rows = $("rows"), dot = $("dot");
     if (!s) {

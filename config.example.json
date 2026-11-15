@@ -18,5 +18,11 @@
   },
   "radar_strategy": {
     "min_score": 70
-  }
+  },
+  "wide": true,
+  "wide_pages": 16,
+  "wide_interval_min": 15,
+  "wide_min_volume": 300000,
+  "wide_min_mcap": 1000000,
+  "wide_min_score": 70
 }

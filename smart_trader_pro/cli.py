@@ -1,4 +1,4 @@
-"""Ligne de commande : scan, watch, backtest, compare, web, test-telegram.
+"""Ligne de commande : scan, watch, wide, backtest, compare, web, test-telegram.
 
 Auteur : Aziz Mernissi
 """
@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, backtest, breakout, compare, strategy
+from . import __version__, backtest, breakout, compare, strategy, wide
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .exchanges import Exchanges, summary_lines
@@ -37,6 +37,8 @@ DEFAULTS = {
     "radar_min_volume": 3_000_000,
     "radar_cooldown_hours": 24,
     "radar_strategy": {},
+    "wide": True,
+    **wide.DEFAULTS,
     "exclude": ["MSTRBUSDT", "CRCLBUSDT", "NVDABUSDT"],   # actions tokenisees
     "news": True,
     "exchanges": True,
@@ -323,21 +325,54 @@ def cmd_scan(args) -> None:
     scan_once(cfg, MarketData(), Telegram(), ContextProvider(), NewsProvider(), Exchanges())
 
 
+def wide_once(scanner: "wide.WideScanner", tg: Telegram) -> int:
+    """Un balayage du marche large ; envoie les nouveaux reveils. Renvoie leur nombre."""
+    res = scanner.sweep()
+    for err in res["errors"]:
+        log(f"Marche large - {err}")
+    for a in res["new"]:
+        text = wide.format_alert(a)
+        print("\n" + text + "\n", flush=True)
+        if tg.enabled and not tg.send(text):
+            log(f"{a['symbol']} : echec de l'envoi Telegram")
+    log(f"Marche large : {res['scanned']} cryptos balayees, {res['eligible']} assez liquides, "
+        f"{len(res['new'])} reveil(s)"
+        + (f", {res['learning']} encore en apprentissage." if res["learning"] else "."))
+    return len(res["new"])
+
+
+def cmd_wide(args) -> None:
+    cfg = load_config(args.config)
+    wide_once(wide.WideScanner(cfg), Telegram())
+
+
 def cmd_watch(args) -> None:
     cfg = load_config(args.config)
     md, tg, ctxp = MarketData(), Telegram(), ContextProvider()
     newsp, exch = NewsProvider(), Exchanges()
+    scanner = wide.WideScanner(cfg) if cfg["wide"] else None
     step = INTERVAL_MS[cfg["interval"]] / 1000
+    tick = min(step, cfg["wide_interval_min"] * 60) if scanner else step
     log(f"Smart Trader Pro {__version__} - surveillance {cfg['interval']}, "
+        f"marche large {'toutes les ' + str(int(tick // 60)) + ' min' if scanner else 'inactif'}, "
         f"Telegram {'actif' if tg.enabled else 'inactif'}.")
+    last_candle = None
     while True:
-        try:
-            scan_once(cfg, md, tg, ctxp, newsp, exch)
-        except Exception as exc:                      # le service ne doit pas tomber
-            log(f"Erreur pendant le scan : {exc}")
+        candle = int((time.time() - 30) // step)      # une bougie est lue 30 s apres sa cloture
+        if candle != last_candle:
+            last_candle = candle
+            try:
+                scan_once(cfg, md, tg, ctxp, newsp, exch)
+            except Exception as exc:                  # le service ne doit pas tomber
+                log(f"Erreur pendant le scan : {exc}")
+        if scanner:
+            try:
+                wide_once(scanner, tg)
+            except Exception as exc:
+                log(f"Erreur pendant le balayage large : {exc}")
         now = time.time()
-        wait = step - (now % step) + 30               # 30 s apres la cloture
-        log(f"Prochain scan dans {int(wait // 60)} min.")
+        wait = tick - (now % tick) + 30
+        log(f"Prochain passage dans {int(wait // 60)} min.")
         time.sleep(wait)
 
 
@@ -492,7 +527,8 @@ def cmd_web(args) -> None:
     port = args.port or int(os.environ.get("DASHBOARD_PORT", "8765"))
     host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
     log(f"Tableau de bord sur {host}:{port}.")
-    web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port)
+    web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
+              wide_file=cfg["wide_file"])
 
 
 def cmd_test_telegram(args) -> None:
@@ -528,6 +564,7 @@ def main(argv=None) -> None:
     cp.add_argument("--fee", type=float, default=0.1)
     cp.add_argument("--top", type=int, default=8)
     cp.set_defaults(fn=cmd_compare)
+    sub.add_parser("wide", help="un balayage du marche large").set_defaults(fn=cmd_wide)
     wb = sub.add_parser("web", help="tableau de bord web")
     wb.add_argument("--port", type=int, default=0)
     wb.set_defaults(fn=cmd_web)
