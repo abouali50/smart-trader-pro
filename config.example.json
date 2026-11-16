@@ -12,6 +12,8 @@
   "radar_interval": "15m",
   "radar_count": 1000,
   "radar_min_volume": 0,
+  "pressure": true,
+  "pressure_max_alerts": 3,
   "alpha": true,
   "alpha_count": 120,
   "alpha_min_volume": 200000,
@@ -29,5 +31,8 @@
   "wide_interval_min": 15,
   "wide_min_volume": 300000,
   "wide_min_mcap": 1000000,
-  "wide_min_score": 70
+  "wide_min_score": 70,
+  "pressure_strategy": {
+    "min_score": 75
+  }
 }

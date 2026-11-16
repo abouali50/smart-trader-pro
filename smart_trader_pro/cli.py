@@ -13,7 +13,8 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, alpha, backtest, breakout, compare, levels, strategy, wide
+from . import (__version__, alpha, backtest, breakout, compare, levels, pressure, strategy,
+               wide)
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .exchanges import Exchanges, summary_lines
@@ -39,6 +40,9 @@ DEFAULTS = {
     "radar_cooldown_hours": 24,
     "radar_strategy": {},
     "radar_file": "radar.json",
+    "pressure": True,                 # pre-explosion : prevenir avant la cassure
+    "pressure_strategy": {},
+    "pressure_max_alerts": 3,         # par passage et par source
     "alpha": True,                    # jetons de la rubrique Binance Alpha
     "alpha_count": 120,
     "alpha_min_volume": 200_000,      # USD sur 24 h
@@ -107,12 +111,14 @@ def row_dict(ev, blocked: str) -> dict:
         "families": {k: list(v) for k, v in ev.families.items()},
         "reasons": ev.reasons, "missing": ev.missing,
         "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2, "ts": ev.ts,
+        "trigger": getattr(ev, "trigger", None),
     }
 
 
 # Reglages du signal Binance en bougies de 15 minutes : 96 bougies = 24 heures.
 RADAR_DEFAULTS = {"breakout_lookback": 96, "rs_bars": 96, "late_bars": 96}
 RADAR_TITLE = "\U0001F6A8 EXPLOSION BINANCE"
+PRESSURE_TITLE = "\u23F3 PRE-EXPLOSION"
 ALPHA_TITLE = "\U0001F6A8 EXPLOSION BINANCE ALPHA"
 ALPHA_WARNING = ("Jeton Binance Alpha : tres volatil, liquidite faible, "
                  "il peut perdre l'essentiel de sa valeur en quelques heures.")
@@ -318,7 +324,8 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
                exchanges: "Exchanges" = None, source=None):
     """Cherche les explosions sur une source (Binance Spot par defaut, ou Binance Alpha).
 
-    Renvoie (lignes pour le tableau de bord, nombre de paires analysees, alertes envoyees).
+    Renvoie (lignes des explosions, nombre de paires analysees, alertes envoyees,
+    lignes des cryptos sous pression).
     """
     source = source or SpotSource(cfg, md)
     rp = radar_params(cfg)
@@ -331,8 +338,10 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         btc = md.klines("BTCUSDT", interval, need)
     except Exception as exc:
         log(f"{source.label} indisponible : {exc}")
-        return [], 0, 0
+        return [], 0, 0, []
     found, sent, confirmed, series = [], 0, {}, {}
+    pp = pressure.Params.from_dict(cfg["pressure_strategy"])
+    pressured: list = []
     for sid in ids:
         try:
             c = source.klines(sid, interval, need)
@@ -352,6 +361,10 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             change = (c.close[i] / c.close[i - day] - 1) * 100 if i >= day else None
         found.append((ev, change, sid))
         series[sid] = c
+        if cfg["pressure"] and len(c) >= pressure.warmup(pp) + 1:
+            pev = pressure.evaluate(pressure.prepare(c, pp, btc=btc), i, pp)
+            if pev is not None:
+                pressured.append((pev, change, sid))
         key = source.prefix + sid
         if ev.is_signal and exchanges is not None and source.use_exchanges:
             confirmed[sid] = exchanges.confirmations(sym)
@@ -397,8 +410,53 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row["exchanges"] = confirmed.get(sid)
         row["news"] = [it.as_dict() for it in for_coin(list(news_items), ev.symbol)]
         rows.append(row)
-    log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s) detectee(s).")
-    return rows, len(found), sent
+    # Pre-explosion : les cryptos sous pression, pas encore parties.
+    pressured.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
+    pre_sent = 0
+    for pev, change, sid in pressured:
+        key = "pre:" + source.prefix + sid
+        if (not pev.is_signal or pre_sent >= cfg["pressure_max_alerts"]
+                or pev.ts - state.get(key, 0) < cooldown_ms):
+            continue
+        c = series[sid]
+        text = format_signal(pev, interval, cfg["capital"], cfg["risk_pct"],
+                             title=f"{PRESSURE_TITLE} {source.label.upper()}")
+        text += ("\n\nPas encore partie. Niveau a casser : " + fmt_price(pev.trigger)
+                 + f" ({(pev.trigger / pev.price - 1) * 100:+.1f} %)."
+                 "\n  Prudent : attendre une cloture au-dessus de ce niveau avec du volume."
+                 "\n  En avance : entrer maintenant avec le stop indique (plus risque).")
+        info = source.info(sid)
+        if info:
+            text += "\n\nLe jeton :\n" + "\n".join(f"  {l}" for l in info)
+        if cfg["levels"]:
+            lv = levels.analyze(c, len(c) - 1, source.book(sid))
+            text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in lv["lines"])
+        nl = news_lines(news_items, pev.symbol)
+        if nl:
+            text += "\n\n" + "\n".join(nl)
+        text += ("\n\nUne zone calme peut ne jamais casser, ou casser vers le bas. "
+                 "Ce n'est pas une prediction.")
+        if source.warning():
+            text += "\n" + source.warning()
+        print("\n" + text + "\n", flush=True)
+        if tg.enabled and not tg.send(text):
+            log(f"{pev.symbol} : echec de l'envoi Telegram")
+        state[key] = pev.ts
+        pre_sent += 1
+        new_signals.append({
+            "kind": "pre-" + source.kind,
+            "symbol": pev.symbol, "ts": pev.ts, "price": pev.price, "score": pev.score,
+            "stop": pev.stop, "tp1": pev.tp1, "tp2": pev.tp2,
+        })
+    pre_rows = []
+    for pev, change, sid in pressured[:12]:
+        row = row_dict(pev, "")
+        row["change_24h"] = change
+        row["info"] = source.info(sid)
+        pre_rows.append(row)
+    log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s), "
+        f"{pre_sent} pre-explosion(s).")
+    return rows, len(found), sent + pre_sent, pre_rows
 
 
 def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProvider,
@@ -413,8 +471,8 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         except RuntimeError:
             news_items = []
     new_signals: list = []
-    rows, scanned, sent = scan_radar(cfg, md, tg, ctx, state, new_signals, news_items,
-                                     exchanges if cfg["exchanges"] else None)
+    rows, scanned, sent, pre_rows = scan_radar(cfg, md, tg, ctx, state, new_signals, news_items,
+                                               exchanges if cfg["exchanges"] else None)
     save_state(cfg["state_file"], state)
     if new_signals:
         write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
@@ -425,6 +483,8 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         "scanned": scanned,
         "min_score": radar_params(cfg).min_score,
         "rows": rows,
+        "pressure": {"min_score": pressure.Params.from_dict(cfg["pressure_strategy"]).min_score,
+                     "rows": pre_rows},
     })
     return sent
 
@@ -435,8 +495,8 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
     state = load_state(cfg["state_file"])
     new_signals: list = []
     source = AlphaSource(cfg, data)
-    rows, scanned, sent = scan_radar(cfg, md, tg, ctx_provider.get(), state, new_signals,
-                                     source=source)
+    rows, scanned, sent, pre_rows = scan_radar(cfg, md, tg, ctx_provider.get(), state,
+                                               new_signals, source=source)
     save_state(cfg["state_file"], state)
     if new_signals:
         write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
@@ -448,14 +508,19 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
         "scanned": scanned,
         "min_score": radar_params(cfg).min_score,
         "rows": rows,
+        "pressure": {"min_score": pressure.Params.from_dict(cfg["pressure_strategy"]).min_score,
+                     "rows": pre_rows},
     })
     return sent
 
 
 def engine_for(args, cfg: dict):
     """Moteur et parametres selon --mode."""
-    if getattr(args, "mode", "repli") == "radar":
+    mode = getattr(args, "mode", "repli")
+    if mode == "radar":
         return breakout, radar_params(cfg)
+    if mode == "pression":
+        return pressure, pressure.Params.from_dict(cfg["pressure_strategy"])
     return strategy, Params.from_dict(cfg["strategy"])
 
 
@@ -541,7 +606,7 @@ def cmd_backtest(args) -> None:
     cfg = load_config(args.config)
     md = MarketData()
     engine, p = engine_for(args, cfg)
-    radar = engine is breakout
+    radar = engine is not strategy                # moteurs de Binance en 15 minutes
     tp_r = args.tp_r if args.tp_r else engine.DEFAULT_TP
     interval = args.interval or (cfg["radar_interval"] if radar else cfg["interval"])
     if args.symbols:
@@ -553,7 +618,7 @@ def cmd_backtest(args) -> None:
     btc = md.klines("BTCUSDT", interval, args.candles) if (radar or cfg["btc_filter"]) else None
     market = engine.market_filter(btc, p)
     reports = []
-    print(f"Backtest {'radar' if radar else 'repli'} {interval} sur {args.candles} bougies - objectif {tp_r:g}R, "
+    print(f"Backtest {getattr(args, 'mode', 'repli')} {interval} sur {args.candles} bougies - objectif {tp_r:g}R, "
           f"frais {args.fee} % par ordre\n")
     head = f"{'Paire':<12}{'Trades':>7}{'Gagnants':>10}{'R moyen':>9}{'PF':>7}{'Total R':>9}{'DD max':>8}{'Garder':>9}"
     print(head)
@@ -589,7 +654,7 @@ def cmd_compare(args) -> None:
     cfg = load_config(args.config)
     md = MarketData()
     engine, base = engine_for(args, cfg)
-    radar = engine is breakout
+    radar = engine is not strategy                # moteurs de Binance en 15 minutes
     interval = args.interval or (cfg["radar_interval"] if radar else cfg["interval"])
     if args.candles < compare.needed_candles(base, engine):
         sys.exit(f"Il faut au moins {compare.needed_candles(base, engine)} bougies (--candles).")
@@ -711,7 +776,7 @@ def main(argv=None) -> None:
     bt = sub.add_parser("backtest", help="tester la strategie sur l'historique")
     bt.add_argument("--symbols", nargs="*")
     bt.add_argument("--candles", type=int, default=3000)
-    bt.add_argument("--mode", choices=("repli", "radar"), default="repli")
+    bt.add_argument("--mode", choices=("repli", "radar", "pression"), default="repli")
     bt.add_argument("--count", type=int, default=0, help="nombre de paires (mode radar)")
     bt.add_argument("--interval", choices=sorted(INTERVAL_MS), help="bougies a utiliser")
     bt.add_argument("--tp-r", type=float, default=0.0)
@@ -719,7 +784,7 @@ def main(argv=None) -> None:
     bt.add_argument("--fee", type=float, default=0.1)
     bt.set_defaults(fn=cmd_backtest)
     cp = sub.add_parser("compare", help="comparer des variantes, avec validation sur donnees jamais vues")
-    cp.add_argument("--mode", choices=("repli", "radar"), default="repli")
+    cp.add_argument("--mode", choices=("repli", "radar", "pression"), default="repli")
     cp.add_argument("--count", type=int, default=0, help="nombre de paires (mode radar)")
     cp.add_argument("--interval", choices=sorted(INTERVAL_MS), help="bougies a utiliser")
     cp.add_argument("--symbols", nargs="*")

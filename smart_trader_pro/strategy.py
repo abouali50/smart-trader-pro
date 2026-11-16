@@ -111,6 +111,7 @@ class Evaluation:
     atr: Optional[float] = None
     families: dict = field(default_factory=dict)   # points par famille
     fib: Optional[dict] = None
+    trigger: Optional[float] = None                # niveau a casser (pre-explosion)
 
     @property
     def risk_pct(self) -> Optional[float]:

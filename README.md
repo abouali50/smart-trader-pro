@@ -1,12 +1,15 @@
 # Smart Trader Pro
 
-Scanner de cryptomonnaies, avec quatre moteurs :
+Scanner de cryptomonnaies, avec cinq moteurs :
 
 - **Signal Binance** : toutes les 15 minutes, analyse toutes les paires USDT
   de Binance sur des bougies de 15 minutes et repère celles qui explosent,
   c'est-à-dire qui cassent le plus haut des dernières 24 heures avec un
   volume anormal et des acheteurs agressifs. C'est le signal mis en avant sur
   la page et sur Telegram.
+- **Pré-explosion** : repère les cryptos sous pression avant qu'elles cassent
+  (prix calme, acheteurs qui accumulent sous une résistance), sur Binance et
+  sur Binance Alpha.
 - **Binance Alpha** : applique le même détecteur d'explosion aux jetons de la
   rubrique Alpha de Binance.
 - **Marché large** : balaie 4000 cryptos via CoinGecko et signale les petites
@@ -152,6 +155,34 @@ sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar --
 La commande utilise les bougies de `radar_interval` ; `--interval 1h` permet
 d'essayer une autre unité de temps.
 
+## La pré-explosion : être prévenu avant
+
+Dans un départ, le volume et les acheteurs bougent avant le prix. Pendant la
+phase d'accumulation, le prix reste dans une zone étroite pendant que des
+acheteurs absorbent ce qui se vend. Le scanner cherche cette signature sur
+les mêmes bougies de 15 minutes :
+
+| Famille | Points | Ce qui est mesuré |
+| --- | --- | --- |
+| Compression | 25 | bandes de Bollinger au plus serré, volatilité sous sa moyenne |
+| Accumulation | 30 | delta cumulé positif, OBV en hausse alors que le prix est calme, acheteurs majoritaires |
+| Volume | 15 | volume récent supérieur à l'habitude sans que le prix parte |
+| Structure | 20 | prix à moins de 3 % sous sa résistance, creux de plus en plus hauts |
+| Force | 10 | tient mieux que le Bitcoin sur 24 h |
+
+Une alerte « ⏳ PRÉ-EXPLOSION » exige un score d'au moins
+`pressure_strategy.min_score` (75 par défaut), un prix encore sous la
+résistance et moins de 10 % de hausse déjà faite. Elle donne le niveau à
+casser et deux façons d'agir : attendre la clôture au-dessus du niveau, ou
+entrer en avance avec un stop sous la zone. Trois alertes au plus par passage.
+
+Ce n'est pas une prédiction : une zone calme peut ne jamais casser, ou casser
+vers le bas. Le mesurer avant de s'y fier :
+
+```bash
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode pression --count 40
+```
+
 ## Binance Alpha
 
 La rubrique Alpha de Binance regroupe des jetons jeunes, négociés avant une
@@ -267,6 +298,9 @@ une garantie.
 | `radar_count` | 1000 | nombre maximal de paires analysées (1000 = toutes) |
 | `radar_min_volume` | 0 | volume minimal sur 24 h, en USDT ; 0 = toutes les paires USDT de Binance |
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
+| `pressure` | `true` | active les alertes de pré-explosion |
+| `pressure_max_alerts` | 3 | alertes de pré-explosion au plus, par passage et par source |
+| `pressure_strategy.min_score` | 75 | seuil de la pré-explosion |
 | `alpha` | `true` | active l'analyse des jetons Binance Alpha |
 | `alpha_count` | 120 | nombre maximal de jetons Alpha analysés |
 | `alpha_min_volume` | 200000 | volume minimal sur 24 h, en dollars |

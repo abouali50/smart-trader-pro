@@ -68,6 +68,9 @@
   .facts .v { font-size: 15px; }
   .detail a { color: var(--accent); }
   h2.star { color: var(--hot); }
+  h2.pre { color: var(--accent); }
+  .table.pre { border-color: rgba(76, 194, 255, .4); }
+  .pill.sig.pre { background: var(--accent); border-color: var(--accent); color: #04202e; }
   .table.starred { border-color: rgba(255, 138, 61, .45); }
   .hero { border: 1px solid var(--hot); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px;
           background: linear-gradient(135deg, rgba(255, 138, 61, .16), rgba(255, 138, 61, .04)); }
@@ -144,6 +147,13 @@
   <div class="banner" id="banner"><b id="bT">Chargement…</b><span id="bS"></span></div>
 
   <div id="hero"></div>
+
+  <h2 class="pre">Sous pression : avant l'explosion</h2>
+  <div class="note" id="preNote">Chargement…</div>
+  <div class="table pre">
+    <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">À casser</div><div class="right">État</div></div>
+    <div id="pre"><div class="empty">Chargement…</div></div>
+  </div>
 
   <h2 class="star">Signal Binance : cryptos qui explosent</h2>
   <div class="note" id="radarNote">Chargement…</div>
@@ -232,6 +242,7 @@
   function renderRow(r, minScore, kind) {
     var key = (kind || "repli") + ":" + r.symbol;
     var isRadar = kind === "radar" || kind === "alpha";
+    var isPre = kind === "pre";
     var item = el("div", "item" + (open[key] ? " open" : ""));
     var row = el("button", "row");
     row.type = "button";
@@ -240,7 +251,7 @@
     var sym = el("div", "sym");
     var base = r.symbol.replace(/USDT$/, "");
     sym.appendChild(document.createTextNode(base));
-    sym.appendChild(el("small", "", r.symbol === base ? "" : " / USDT"));
+    sym.appendChild(el("small", "", r.src ? " · " + r.src : (r.symbol === base ? "" : " / USDT")));
     row.appendChild(sym);
 
     row.appendChild(el("div", "price num right", price(r.price)));
@@ -251,7 +262,10 @@
     row.appendChild(sc);
 
     var t = el("div", "trend");
-    if (isRadar) {
+    if (isPre) {
+      var gapv = (r.trigger && r.price) ? (r.trigger / r.price - 1) * 100 : null;
+      t.appendChild(el("span", "chg", gapv === null ? "—" : pct(gapv, true)));
+    } else if (isRadar) {
       var ch = r.change_24h;
       var cs = el("span", "chg", (ch === null || ch === undefined) ? "—" : pct(ch, true));
       if (ch !== null && ch !== undefined) cs.style.color = ch >= 0 ? "var(--up)" : "var(--down)";
@@ -263,7 +277,7 @@
     row.appendChild(t);
 
     var st = el("div", "right");
-    if (r.signal) st.appendChild(el("span", "pill sig" + (isRadar ? " radar" : ""), isRadar ? "EXPLOSION" : "SIGNAL"));
+    if (r.signal) st.appendChild(el("span", "pill sig" + (isPre ? " pre" : isRadar ? " radar" : ""), isPre ? "SOUS PRESSION" : isRadar ? "EXPLOSION" : "SIGNAL"));
     else if (r.suspended) st.appendChild(el("span", "pill sus", "suspendu"));
     else st.appendChild(el("span", "pill", "attente"));
     row.appendChild(st);
@@ -285,6 +299,12 @@
         lv.appendChild(c);
       });
       d.appendChild(lv);
+    }
+    if (isPre && r.trigger) {
+      var tg = el("div", "extra");
+      tg.appendChild(el("b", "", "Niveau à casser : " + price(r.trigger)));
+      tg.appendChild(el("div", "", "Prudent : attendre une clôture au-dessus de ce niveau avec du volume. En avance : entrer avec le stop indiqué, ce qui est plus risqué."));
+      d.appendChild(tg);
     }
     var fams = el("div", "fams" + (Object.keys(r.families || {}).length > 5 ? " six" : ""));
     Object.keys(r.families || {}).forEach(function (k) {
@@ -483,8 +503,33 @@
     else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, cfg.kind); }));
   }
 
+  function renderPressure(radar, alpha) {
+    var rows = [], minScore = 75;
+    [[radar, "Binance"], [alpha, "Alpha"]].forEach(function (p) {
+      var pr = p[0] && p[0].pressure;
+      if (!pr) return;
+      minScore = pr.min_score || minScore;
+      (pr.rows || []).forEach(function (r) { var c = Object.assign({}, r); c.src = p[1]; rows.push(c); });
+    });
+    rows.sort(function (a, b) { return (b.signal - a.signal) || (b.score - a.score); });
+    rows = rows.slice(0, 12);
+    var box = $("pre");
+    if (!radar && !alpha) {
+      $("preNote").textContent = "Le premier passage n'est pas encore terminé.";
+      box.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      return;
+    }
+    var ready = rows.filter(function (r) { return r.signal; }).length;
+    $("preNote").textContent = "Prix calme, bandes serrées, acheteurs qui accumulent sous une résistance · "
+      + (ready ? ready + (ready > 1 ? " cryptos sous pression" : " crypto sous pression") : "aucune crypto sous pression pour l'instant")
+      + " · seuil " + minScore + "/100 · une zone calme peut aussi casser vers le bas";
+    if (!rows.length) box.replaceChildren(el("div", "empty", "Aucune crypto à afficher."));
+    else box.replaceChildren.apply(box, rows.map(function (r) { return renderRow(r, minScore, "pre"); }));
+  }
+
   function render(data) {
     $("hero").replaceChildren();
+    renderPressure(data.radar, data.alpha);
     renderExplosions(data.radar, { box: "radar", note: "radarNote", kind: "radar", tag: "Explosion Binance",
       unit: "paires Binance analysées", pending: "Le premier passage du signal Binance n'est pas encore terminé.",
       unavailable: "Binance ne répond pas depuis ce serveur." });
@@ -565,7 +610,8 @@
         var l = el("div", "line");
         var name = el("div", "sym");
         name.appendChild(document.createTextNode(x.symbol.replace(/USDT$/, "")));
-        name.appendChild(el("small", "", x.kind === "alpha" ? " · Binance Alpha" : x.kind === "radar" ? " · Binance" : " · repli"));
+        var kinds = { "alpha": "explosion Alpha", "radar": "explosion Binance", "pre-radar": "sous pression Binance", "pre-alpha": "sous pression Alpha" };
+        name.appendChild(el("small", "", " · " + (kinds[x.kind] || "repli")));
         l.appendChild(name);
         l.appendChild(el("div", "num", when(x.ts)));
         l.appendChild(el("div", "num opt", "Entrée " + price(x.price)));
