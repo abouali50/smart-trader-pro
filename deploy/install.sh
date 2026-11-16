@@ -72,5 +72,6 @@ Smart Trader Pro est installe et tourne.
   Reglages                   : nano $APP_DIR/config.json
   Telegram, CoinMarketCap    : nano $APP_DIR/.env
   Appliquer un changement    : systemctl restart smart-trader-pro
+  Compte administrateur      : cd $APP_DIR && sudo -u $APP_USER .venv/bin/python -m smart_trader_pro admin
   Backtest                   : cd $APP_DIR && sudo -u $APP_USER .venv/bin/python -m smart_trader_pro backtest
 MSG

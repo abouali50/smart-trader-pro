@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import (__version__, alpha, backtest, breakout, compare, levels, pressure, strategy,
+from . import (__version__, alpha, backtest, breakout, chain, compare, levels, pressure, strategy,
                tracker,
                wide)
 from .context import ContextProvider, MarketContext
@@ -61,6 +61,21 @@ DEFAULTS = {
     "signals_file": "signals.json",
     "tracking": True,                 # suit le resultat reel de chaque alerte
     "tracking_file": "tracking.json",
+    # Application web : comptes, abonnements payes en crypto, lien vers le DEX.
+    "app_db": "app.db",
+    "paywall": False,                 # True : niveaux et details reserves aux abonnes
+    "plans": {
+        "week": {"label": "Hebdomadaire", "days": 7, "price": 9},
+        "month": {"label": "Mensuel", "days": 30, "price": 29},
+        "year": {"label": "Annuel", "days": 365, "price": 249},
+    },
+    "pay_address": "",                # adresse BNB Chain qui recoit les abonnements
+    "pay_symbol": "USDT",
+    "pay_token": chain.USDT_BSC,
+    "pay_decimals": 18,
+    "pay_confirmations": 5,
+    "pay_rpc": [],                    # vide : noeuds publics de BNB Chain
+    "dex_url": "",                    # ex. https://dex.exemple.com/swap?outputCurrency={address}
     "strategy": {},
 }
 
@@ -153,6 +168,9 @@ class SpotSource:
     def info(self, sid: str) -> List[str]:
         return []
 
+    def token(self, sid: str):
+        return None
+
     def change_24h(self, sid: str):
         return None
 
@@ -182,6 +200,13 @@ class AlphaSource:
     def info(self, sid: str) -> List[str]:
         t = self.data.tokens_by_id.get(sid)
         return alpha.info_lines(t) if t else []
+
+    def token(self, sid: str):
+        """Contrat du jeton, pour l'ouvrir sur un DEX (None si l'adresse est inutilisable)."""
+        t = self.data.tokens_by_id.get(sid) or {}
+        if not chain.is_address(t.get("contract")):
+            return None
+        return {"contract": t["contract"], "chain_id": t.get("chain_id", ""), "chain": t.get("chain", "")}
 
     def change_24h(self, sid: str):
         t = self.data.tokens_by_id.get(sid)
@@ -426,6 +451,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row = row_dict(ev, blocked)
         row["change_24h"] = change
         row["info"] = source.info(sid)
+        row["sid"], row["token"] = sid, source.token(sid)
         if cfg["levels"]:
             cs = series[sid]
             book = source.book(sid) if (rank < 5 or ev.is_signal) else None
@@ -476,6 +502,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row = row_dict(pev, "")
         row["change_24h"] = change
         row["info"] = source.info(sid)
+        row["sid"], row["token"] = sid, source.token(sid)
         pre_rows.append(row)
     log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s), "
         f"{pre_sent} pre-explosion(s).")
@@ -822,10 +849,37 @@ def cmd_web(args) -> None:
     cfg = load_config(args.config)
     port = args.port or int(os.environ.get("DASHBOARD_PORT", "8765"))
     host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
-    log(f"Tableau de bord sur {host}:{port}.")
+    from .store import Store
+    app = web.App(cfg, Store(cfg["app_db"]), chain.Chain(cfg["pay_rpc"] or None),
+                  MarketData(), alpha.AlphaData(pause=0) if cfg["alpha"] else None)
+    log(f"Application web sur {host}:{port} - abonnements "
+        f"{'ouverts' if app.pay_ready else 'fermes (pay_address non renseignee)'}, "
+        f"paywall {'actif' if cfg['paywall'] else 'inactif'}.")
     web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
               wide_file=cfg["wide_file"], radar_file=cfg["radar_file"],
-              alpha_file=cfg["alpha_file"], tracking_file=cfg["tracking_file"])
+              alpha_file=cfg["alpha_file"], tracking_file=cfg["tracking_file"], app=app)
+
+
+def cmd_admin(args) -> None:
+    """Cree le compte administrateur, ou change son mot de passe. Le mot de passe est
+    demande au clavier sans etre affiche ni enregistre dans l'historique du terminal."""
+    import getpass
+    from .store import Store
+    cfg = load_config(args.config)
+    store = Store(cfg["app_db"])
+    email = (args.email or input("Adresse e-mail de l'administrateur : ")).strip().lower()
+    first = getpass.getpass("Mot de passe (8 caracteres au moins, rien ne s'affiche) : ")
+    if first != getpass.getpass("Encore une fois : "):
+        sys.exit("Les deux saisies sont differentes. Rien n'a ete change.")
+    try:
+        if store.user_by_email(email):
+            store.set_password(email, first)
+        else:
+            store.create_user(email, first)
+        store.set_admin(email)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print("Compte administrateur pret. Connecte-toi sur l'application avec cette adresse.")
 
 
 def cmd_test_telegram(args) -> None:
@@ -867,6 +921,9 @@ def main(argv=None) -> None:
     wb = sub.add_parser("web", help="tableau de bord web")
     wb.add_argument("--port", type=int, default=0)
     wb.set_defaults(fn=cmd_web)
+    ad = sub.add_parser("admin", help="creer le compte administrateur de l'application web")
+    ad.add_argument("--email")
+    ad.set_defaults(fn=cmd_admin)
     sub.add_parser("test-telegram", help="verifier Telegram").set_defaults(fn=cmd_test_telegram)
     args = ap.parse_args(argv)
     args.fn(args)

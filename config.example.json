@@ -23,6 +23,14 @@
   "strategy": {
     "min_score": 70
   },
+  "paywall": false,
+  "pay_address": "",
+  "dex_url": "",
+  "plans": {
+    "week": {"label": "Hebdomadaire", "days": 7, "price": 9},
+    "month": {"label": "Mensuel", "days": 30, "price": 29},
+    "year": {"label": "Annuel", "days": 365, "price": 249}
+  },
   "radar_strategy": {
     "min_score": 70,
     "market_bars": 672

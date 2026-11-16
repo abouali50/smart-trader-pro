@@ -268,6 +268,49 @@ Chaque alerte donne l'entrée, le stop (sous le dernier creux, entre 1 et 3
 ATR), deux objectifs (1,5 R et 3 R), les niveaux de Fibonacci et la taille de
 position pour ne risquer que `risk_pct` % du capital.
 
+## L'application web : comptes, abonnements, écran de trading
+
+La page d'accueil du serveur est une application : Accueil, Signaux, Trader
+(graphique en bougies, niveaux, calculateur de position), Bilan, Abonnement
+et Compte. Elle s'installe sur iPhone (Safari, Partager, « Sur l'écran
+d'accueil ») et sur Mac. L'ancienne page reste disponible à l'adresse
+`/classique`.
+
+**Compte administrateur.** À créer une fois, sur le serveur ; le mot de passe
+est demandé au clavier sans s'afficher :
+
+```bash
+cd /opt/smart-trader-pro && sudo -u smarttrader .venv/bin/python -m smart_trader_pro admin
+```
+
+L'administrateur voit dans « Compte » le nombre de comptes, les abonnés
+actifs, les paiements reçus, et peut offrir des jours d'abonnement.
+
+**Abonnements payés en USDT (BNB Chain).** Le client choisit une formule ;
+l'application lui donne un montant exact, unique à sa commande (par exemple
+29,0042 USDT), et l'adresse de paiement. Il paie depuis son portefeuille
+(bouton « Payer avec mon wallet », ou envoi manuel puis collage de
+l'identifiant de transaction). Le serveur lit alors la blockchain et n'active
+l'abonnement que si la transaction a réussi, envoie le bon jeton à la bonne
+adresse pour le montant exact, est postérieure à la commande, a reçu 5
+confirmations et n'a jamais servi. Le serveur ne détient aucune clé : il ne
+fait que lire. Les abonnements restent fermés tant que `pay_address` est vide.
+
+**Paywall.** Avec `"paywall": false` (par défaut) tout le contenu est visible
+par tous. Avec `true`, les visiteurs voient les cryptos et leurs scores, mais
+les niveaux (entrée, stop, objectifs), les raisons et le graphique sont
+réservés aux abonnés.
+
+**Trader.** L'application ne passe aucun ordre et ne stocke aucune clé
+d'exchange. Pour un jeton de BNB Chain dont le contrat est connu (jetons
+Binance Alpha), le bouton « Trader sur Pay212 DEX » ouvre le DEX sur ce
+jeton : le client signe l'échange avec son propre portefeuille. L'adresse du
+DEX se règle dans `dex_url`, où `{address}` est remplacé par le contrat du
+jeton. Pour une paire Binance, le bouton ouvre la paire sur Binance.
+
+Après un changement de `config.json` :
+`sudo systemctl restart smart-trader-pro-web`.
+
 ## Le bilan des alertes : ce qu'elles ont vraiment donné
 
 Chaque alerte envoyée est suivie automatiquement. Le scanner rejoue le plan
@@ -339,6 +382,11 @@ une garantie.
 | `alpha_min_volume` | 200000 | volume minimal sur 24 h, en dollars |
 | `alpha_min_liquidity` | 50000 | liquidité minimale, en dollars |
 | `tracking` | `true` | suit le résultat réel de chaque alerte (bilan sur la page) |
+| `paywall` | `false` | `true` : niveaux, raisons et graphique réservés aux abonnés |
+| `plans` | 9 / 29 / 249 USDT | formules : libellé, durée en jours, prix |
+| `pay_address` | vide | adresse BNB Chain qui reçoit les abonnements ; vide = abonnements fermés |
+| `pay_confirmations` | 5 | confirmations exigées avant d'activer un abonnement |
+| `dex_url` | vide | adresse du DEX, avec `{address}` à la place du contrat du jeton |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `radar_strategy.market_bars` | 672 | filtre de marché : moyenne du Bitcoin sur N bougies ; 0 = sans filtre |
 | `wide` | `true` | active le balayage du marché large |

@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="author" content="Aziz Mernissi">
+<meta name="theme-color" content="#0b1017">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trader Pro">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<title>Smart Trader Pro</title>
+<style>
+  :root {
+    --bg: #070b11; --panel: #0f1620; --panel2: #141d2a; --line: #1f2a3a; --line2: #2a384c;
+    --text: #e8eef6; --muted: #8696ab; --dim: #5d6c80;
+    --hot: #ff8a3d; --up: #35d08a; --down: #ff6b6b; --warn: #f5b942; --blue: #5aa9ff;
+    --grad: linear-gradient(135deg, #ff8a3d 0%, #ffb23d 40%, #35d08a 100%);
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(255, 138, 61, .13), transparent 60%),
+      radial-gradient(800px 500px at -10% 10%, rgba(53, 208, 138, .10), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: var(--blue); text-decoration: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .up { color: var(--up); } .down { color: var(--down); }
+
+  .shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100%; }
+  .side { position: sticky; top: 0; height: 100vh; padding: 22px 14px; border-right: 1px solid var(--line); background: rgba(9, 13, 20, .72); backdrop-filter: blur(14px); display: flex; flex-direction: column; gap: 6px; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; }
+  .brand img { width: 38px; height: 38px; border-radius: 11px; }
+  .brand b { font-size: 16px; letter-spacing: .2px; display: block; }
+  .brand span { font-size: 11.5px; color: var(--muted); }
+  .nav { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); text-align: left; font-weight: 550; }
+  .nav svg { width: 20px; height: 20px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .nav:hover { background: rgba(255, 255, 255, .04); color: var(--text); }
+  .nav.on { background: linear-gradient(90deg, rgba(255, 138, 61, .18), rgba(53, 208, 138, .08)); color: var(--text); box-shadow: inset 2px 0 0 var(--hot); }
+  .side .foot { margin-top: auto; font-size: 11.5px; color: var(--dim); padding: 10px; line-height: 1.5; }
+
+  main { padding: 26px 30px 60px; max-width: 1240px; width: 100%; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .top h1 { margin: 0; font-size: 25px; letter-spacing: -.3px; }
+  .top p { margin: 3px 0 0; color: var(--muted); font-size: 13.5px; }
+  .live { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 12.5px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dot.ok { background: var(--up); box-shadow: 0 0 0 4px rgba(53, 208, 138, .16); }
+  .dot.late { background: var(--warn); }
+
+  .grid { display: grid; gap: 14px; }
+  .g4 { grid-template-columns: repeat(4, 1fr); } .g3 { grid-template-columns: repeat(3, 1fr); } .g2 { grid-template-columns: 1.55fr 1fr; }
+  .card { background: linear-gradient(180deg, rgba(20, 29, 42, .92), rgba(13, 19, 28, .92)); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+  .card h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: .2px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .kpi .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .kpi .v { font-size: 24px; font-weight: 680; margin-top: 4px; letter-spacing: -.4px; }
+  .kpi .s { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  section { margin-top: 22px; }
+  h2 { font-size: 15.5px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .note { color: var(--muted); font-size: 13px; margin: -4px 0 12px; }
+  .banner { border: 1px solid rgba(245, 185, 66, .35); background: rgba(245, 185, 66, .08); color: #f7d58a; border-radius: 12px; padding: 11px 14px; font-size: 13.5px; }
+  .banner.info { border-color: rgba(90, 169, 255, .3); background: rgba(90, 169, 255, .07); color: #b9d8ff; }
+  .banner.good { border-color: rgba(53, 208, 138, .35); background: rgba(53, 208, 138, .08); color: #a8ecd0; }
+
+  .hero { position: relative; overflow: hidden; border-radius: 18px; padding: 18px 20px; border: 1px solid rgba(255, 138, 61, .45); background: linear-gradient(135deg, rgba(255, 138, 61, .20), rgba(20, 29, 42, .9) 55%); cursor: pointer; text-align: left; width: 100%; color: inherit; }
+  .hero .tag { font-size: 11.5px; text-transform: uppercase; letter-spacing: .9px; color: #ffc59a; font-weight: 650; }
+  .hero .name { font-size: 26px; font-weight: 720; letter-spacing: -.5px; margin: 4px 0 2px; }
+  .hero .name small { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .hero .lv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .hero .lv div { background: rgba(7, 11, 17, .55); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .hero .lv span { display: block; font-size: 11px; color: var(--muted); }
+  .hero .lv b { font-size: 14.5px; }
+
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tab { border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 8px 14px; border-radius: 999px; font-weight: 560; font-size: 13.5px; }
+  .tab.on { color: #10151c; background: var(--grad); border-color: transparent; }
+  .tab i { font-style: normal; opacity: .7; margin-left: 5px; }
+
+  .table { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+  .tr { display: grid; grid-template-columns: 1.5fr 1fr 1.2fr .9fr .9fr; gap: 10px; align-items: center; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; width: 100%; text-align: left; }
+  .tr:last-child { border-bottom: 0; }
+  button.tr:hover { background: rgba(255, 255, 255, .035); }
+  .tr.th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); padding: 9px 16px; }
+  .sym { font-weight: 650; } .sym small { color: var(--muted); font-weight: 480; }
+  .right { text-align: right; }
+  .score { display: flex; align-items: center; gap: 8px; }
+  .bar { flex: 1; height: 6px; background: #1a2433; border-radius: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: #3a4b62; border-radius: 6px; }
+  .bar i.hot { background: var(--grad); }
+  .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line2); color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .pill.sig { background: var(--up); border-color: var(--up); color: #06281a; }
+  .pill.hot { background: var(--hot); border-color: var(--hot); color: #2a1200; }
+  .pill.hold { border-color: rgba(245, 185, 66, .5); color: var(--warn); }
+  .empty { padding: 26px 16px; color: var(--muted); text-align: center; font-size: 14px; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line2); background: var(--panel2); padding: 10px 16px; border-radius: 12px; font-weight: 620; color: var(--text); }
+  .btn:hover { border-color: #3b4d66; }
+  .btn.primary { background: var(--grad); border-color: transparent; color: #10151c; }
+  .btn.ghost { background: transparent; }
+  .btn.small { padding: 6px 11px; font-size: 12.5px; border-radius: 9px; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .field { display: block; margin-bottom: 12px; }
+  .field span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
+  .field input, .field select { width: 100%; background: #0a1018; border: 1px solid var(--line2); border-radius: 11px; padding: 11px 12px; outline: none; }
+  .field input:focus { border-color: var(--hot); }
+  .msg { font-size: 13.5px; margin-top: 8px; min-height: 20px; }
+  .msg.err { color: var(--down); } .msg.ok { color: var(--up); }
+
+  .trade { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; align-items: start; }
+  .chartbox { position: relative; height: 420px; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .chartmsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; text-align: center; padding: 20px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fact { background: #0a1018; border: 1px solid var(--line); border-radius: 11px; padding: 9px 11px; }
+  .fact span { display: block; font-size: 11.5px; color: var(--muted); }
+  .fact b { font-size: 15px; }
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+  ul.clean li:last-child { border-bottom: 0; }
+  ul.clean li.y::before { content: "+ "; color: var(--up); font-weight: 700; }
+  ul.clean li.n::before { content: "– "; color: var(--dim); font-weight: 700; }
+
+  .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .plan { position: relative; text-align: center; padding: 24px 18px; }
+  .plan.best { border-color: rgba(255, 138, 61, .6); box-shadow: 0 0 0 1px rgba(255, 138, 61, .25), 0 20px 50px -30px rgba(255, 138, 61, .6); }
+  .plan .ribbon { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); background: var(--grad); color: #10151c; font-size: 11.5px; font-weight: 700; padding: 3px 12px; border-radius: 999px; }
+  .plan .p { font-size: 38px; font-weight: 740; letter-spacing: -1px; margin: 8px 0 2px; }
+  .plan .p small { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .copy { display: flex; align-items: center; gap: 8px; background: #0a1018; border: 1px solid var(--line2); border-radius: 11px; padding: 10px 12px; margin-bottom: 10px; }
+  .copy code { flex: 1; overflow-wrap: anywhere; font-size: 13.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .lock { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12.5px; }
+
+  .tabbar { display: none; }
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    .side { display: none; }
+    main { padding: 18px 14px 96px; }
+    .g4 { grid-template-columns: 1fr 1fr; } .g3, .g2, .trade, .plans { grid-template-columns: 1fr; }
+    .tr { grid-template-columns: 1.3fr 1fr .9fr; } .tr .opt { display: none; }
+    .hero .lv { grid-template-columns: 1fr 1fr; }
+    .chartbox { height: 320px; }
+    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(6, 1fr); background: rgba(9, 13, 20, .92); backdrop-filter: blur(16px); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); z-index: 5; }
+    .tabbar .nav { flex-direction: column; gap: 3px; padding: 7px 2px; font-size: 10.5px; text-align: center; justify-content: center; }
+    .tabbar .nav.on { box-shadow: none; background: transparent; color: var(--hot); }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><img src="/icon.svg" alt=""><div><b>Smart Trader Pro</b><span>Scanner crypto en direct</span></div></div>
+    <div id="navSide"></div>
+    <div class="foot">Analyse automatique, pas un conseil financier. Les résultats passés ne garantissent rien.<br>© Aziz Mernissi</div>
+  </aside>
+  <main>
+    <div class="top">
+      <div><h1 id="title">Accueil</h1><p id="subtitle"></p></div>
+      <div class="row"><span class="live"><span class="dot" id="dot"></span><span id="fresh">Connexion…</span></span>
+        <button class="btn small" id="accountBtn" type="button">Se connecter</button></div>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<nav class="tabbar" id="navBar"></nav>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  function h(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    for (var i = 3; i < arguments.length; i++) if (arguments[i]) e.appendChild(arguments[i]);
+    return e;
+  }
+  function svg(paths) {
+    var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    s.setAttribute("viewBox", "0 0 24 24");
+    paths.forEach(function (d) { var p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", d); s.appendChild(p); });
+    return s;
+  }
+  var ICONS = {
+    home: ["M3 11l9-8 9 8", "M5 10v10h14V10"],
+    signals: ["M4 19V9", "M10 19V5", "M16 19v-7", "M22 19H2"],
+    trade: ["M3 17l6-6 4 4 8-9", "M15 6h6v6"],
+    tally: ["M4 4h16v16H4z", "M8 12l3 3 5-6"],
+    plans: ["M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6L12 16.8 6.700 19.6l1.1-6L3.400 9.4l6-.8z"],
+    account: ["M12 12a4 4 0 100-8 4 4 0 000 8z", "M4 21a8 8 0 0116 0"]
+  };
+  var VIEWS = [["home", "Accueil"], ["signals", "Signaux"], ["trade", "Trader"], ["tally", "Bilan"], ["plans", "Abonnement"], ["account", "Compte"]];
+  var KINDS = { "repli": "Repli en tendance", "radar": "Explosion Binance", "alpha": "Explosion Alpha",
+    "pre-radar": "Sous pression Binance", "pre-alpha": "Sous pression Alpha",
+    "held-radar": "Cassure retenue (Bitcoin en baisse)", "held-alpha": "Cassure Alpha retenue (Bitcoin en baisse)" };
+  var KIND_ORDER = ["radar", "alpha", "held-radar", "held-alpha", "pre-radar", "pre-alpha", "repli"];
+
+  var state = { view: "home", data: null, me: null, tab: "radar", pick: null, interval: "15m", chart: null, order: null, authMode: "login", admin: null };
+
+  // ---------- formats ----------
+  function price(x) {
+    if (x === null || x === undefined || isNaN(x)) return "—";
+    var a = Math.abs(x), d = a >= 1000 ? 2 : a >= 1 ? 4 : a >= 0.01 ? 5 : a >= 0.0001 ? 7 : 10;
+    return x.toLocaleString("fr-FR", { minimumFractionDigits: Math.min(d, 2), maximumFractionDigits: d });
+  }
+  function pct(x, signed) { return (signed && x > 0 ? "+" : "") + x.toFixed(2).replace(".", ",") + " %"; }
+  function rText(r) { return (r > 0 ? "+" : "") + r.toFixed(2).replace(".", ",") + " R"; }
+  function colored(text, v) { var s = h("span", v > 0 ? "up" : (v < 0 ? "down" : ""), text); return s; }
+  function signed(x) { return (x === null || x === undefined) ? h("span", "muted", "—") : colored(pct(x, true), x); }
+  function when(ts) { return new Date(ts).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+  function day(ts) { return new Date(ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }); }
+  function ago(ms) {
+    var m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (m < 1) return "à l'instant";
+    if (m < 60) return "il y a " + m + " min";
+    return "il y a " + Math.floor(m / 60) + " h " + (m % 60) + " min";
+  }
+  function money(x) {
+    if (x === null || x === undefined) return "—";
+    if (x >= 1e9) return (x / 1e9).toFixed(1).replace(".", ",") + " Md $";
+    if (x >= 1e6) return (x / 1e6).toFixed(1).replace(".", ",") + " M $";
+    if (x >= 1e3) return (x / 1e3).toFixed(0) + " k $";
+    return x.toFixed(0) + " $";
+  }
+  function usd(x) { return x.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function base(sym) { return String(sym || "").replace(/USDT$/, ""); }
+
+  // ---------- réseau ----------
+  function api(path, body) {
+    var opt = { cache: "no-store", credentials: "same-origin" };
+    if (body !== undefined) { opt.method = "POST"; opt.headers = { "Content-Type": "application/json" }; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.status === 200, status: r.status, data: j }; });
+    });
+  }
+  function loadStatus() {
+    return api("/api/status").then(function (r) {
+      if (!r.ok) throw new Error("status");
+      state.data = r.data;
+      var s = r.data.radar || r.data.status;
+      var late = !s || Date.now() - s.updated > 40 * 60000;
+      $("dot").className = "dot " + (late ? "late" : "ok");
+      $("fresh").textContent = s ? "Dernière analyse " + ago(s.updated) : "En attente du premier passage";
+      if (state.view !== "trade" && state.view !== "account" && state.view !== "plans") render();
+    }).catch(function () {
+      $("dot").className = "dot late";
+      $("fresh").textContent = "Connexion au serveur perdue";
+    });
+  }
+  function loadMe() {
+    return api("/api/me").then(function (r) {
+      if (r.ok) { state.me = r.data; if (r.data.order) state.order = r.data.order; }
+      var u = state.me && state.me.user;
+      $("accountBtn").textContent = u ? u.email.split("@")[0] : "Se connecter";
+    });
+  }
+
+  // ---------- éléments normalisés ----------
+  function items(kind) {
+    var d = state.data || {}, out = [];
+    function add(rows, k, src) { (rows || []).forEach(function (r) { var x = Object.assign({}, r); x.kind = k; x.src = src; out.push(x); }); }
+    if (kind === "radar") add(d.radar && d.radar.rows, "radar", "spot");
+    if (kind === "alpha") add(d.alpha && d.alpha.rows, "alpha", "alpha");
+    if (kind === "pre") { add(d.radar && d.radar.pressure && d.radar.pressure.rows, "pre", "spot"); add(d.alpha && d.alpha.pressure && d.alpha.pressure.rows, "pre", "alpha"); out.sort(function (a, b) { return b.score - a.score; }); }
+    if (kind === "repli") add(d.status && d.status.rows, "repli", "spot");
+    if (kind === "wide") add(d.wide && d.wide.rows, "wide", "wide");
+    return out;
+  }
+  function minScore(kind) {
+    var d = state.data || {};
+    if (kind === "radar") return (d.radar || {}).min_score;
+    if (kind === "alpha") return (d.alpha || {}).min_score;
+    if (kind === "pre") return ((d.radar || {}).pressure || {}).min_score;
+    if (kind === "repli") return (d.status || {}).min_score;
+    return (d.wide || {}).min_score;
+  }
+  function statePill(x) {
+    if (x.kind === "wide") return h("span", x.alert ? "pill hot" : "pill", x.alert ? "RÉVEIL" : "attente");
+    if (x.suspended) return h("span", "pill hold", "retenue");
+    if (x.kind === "pre") return h("span", x.signal ? "pill hot" : "pill", x.signal ? "SOUS PRESSION" : "à surveiller");
+    if (x.kind === "repli") return h("span", x.signal ? "pill sig" : "pill", x.signal ? "SIGNAL" : "attente");
+    return h("span", x.signal ? "pill hot" : "pill", x.signal ? "EXPLOSION" : "attente");
+  }
+  function rowNode(x, min) {
+    var b = h("button", "tr"); b.type = "button";
+    var nm = h("div", "sym", x.kind === "wide" ? x.symbol : base(x.symbol));
+    nm.appendChild(h("small", "", x.kind === "wide" ? " · " + (x.name || "") : (x.src === "alpha" ? " · Alpha" : " / USDT")));
+    b.appendChild(nm);
+    b.appendChild(h("div", "num right", price(x.price)));
+    var sc = h("div", "score"), bar = h("div", "bar"), fill = h("i", x.score >= (min || 101) ? "hot" : "");
+    fill.style.width = Math.max(0, Math.min(100, x.score)) + "%"; bar.appendChild(fill);
+    sc.appendChild(bar); sc.appendChild(h("b", "num", String(x.score)));
+    b.appendChild(sc);
+    var ch = h("div", "num right opt"); ch.appendChild(signed(x.kind === "wide" ? x.chg_24h : x.change_24h)); b.appendChild(ch);
+    var st = h("div", "right opt"); st.appendChild(statePill(x)); b.appendChild(st);
+    b.addEventListener("click", function () { openTrade(x); });
+    return b;
+  }
+  function tableOf(list, min, emptyText) {
+    var t = h("div", "table");
+    var head = h("div", "tr th");
+    ["Crypto", "Prix", "Score", "24 h", "État"].forEach(function (c, i) { head.appendChild(h("div", (i === 1 || i >= 3 ? "right " : "") + (i >= 3 ? "opt" : ""), c)); });
+    t.appendChild(head);
+    if (!list.length) t.appendChild(h("div", "empty", emptyText));
+    list.forEach(function (x) { t.appendChild(rowNode(x, min)); });
+    return t;
+  }
+  function lockNote() {
+    if (!state.data || !state.data.locked) return null;
+    var b = h("div", "banner", "Aperçu gratuit : les niveaux d'entrée, de stop et d'objectif sont réservés aux abonnés. ");
+    var a = h("a", "", "Voir les formules"); a.href = "#plans"; b.appendChild(a);
+    return b;
+  }
+
+  // ---------- Accueil ----------
+  function viewHome(root) {
+    var d = state.data || {}, s = d.status || {}, c = s.context || {}, rd = d.radar || {};
+    var ln = lockNote(); if (ln) { root.appendChild(ln); root.appendChild(h("div", "", "")).style.height = "12px"; }
+    var k = h("div", "grid g4");
+    function kpi(label, value, sub, cls) {
+      var card = h("div", "card kpi"); card.appendChild(h("div", "k", label));
+      var v = h("div", "v num " + (cls || ""), value); card.appendChild(v); card.appendChild(h("div", "s", sub)); return card;
+    }
+    var mc = c.market_change_24h;
+    k.appendChild(kpi("Marché sur 24 h", (mc === null || mc === undefined) ? "—" : pct(mc, true), "toutes cryptos confondues", mc > 0 ? "up" : (mc < 0 ? "down" : "")));
+    k.appendChild(kpi("Bitcoin", rd.market === "up" ? "Haussier" : (rd.market === "down" ? "Baissier" : "—"),
+      rd.market === "down" ? "alertes d'explosion suspendues" : (rd.market === "up" ? "alertes d'explosion actives" : "tendance sur 7 jours"), rd.market === "up" ? "up" : (rd.market === "down" ? "down" : "")));
+    k.appendChild(kpi("Dominance BTC", (c.btc_dominance === null || c.btc_dominance === undefined) ? "—" : c.btc_dominance.toFixed(1).replace(".", ",") + " %", "part du Bitcoin dans le marché"));
+    var scanned = (rd.scanned || 0) + ((d.alpha || {}).scanned || 0);
+    k.appendChild(kpi("Cryptos surveillées", String(scanned + ((d.wide || {}).scanned || 0)), (rd.scanned || 0) + " paires Binance · " + ((d.alpha || {}).scanned || 0) + " Alpha"));
+    root.appendChild(k);
+
+    var hits = items("radar").concat(items("alpha")).filter(function (x) { return x.signal; });
+    var sec = h("section"); sec.appendChild(h("h2", "", "Explosions en cours"));
+    if (!hits.length) {
+      sec.appendChild(h("div", "card empty", rd.market === "down"
+        ? "Aucune alerte : le Bitcoin est en tendance baissière, les cassures sont retenues et suivies dans le bilan."
+        : "Aucune explosion détectée pour l'instant. Le scanner repasse toutes les 15 minutes."));
+    } else {
+      var hg = h("div", "grid g3");
+      hits.slice(0, 6).forEach(function (x) {
+        var b = h("button", "hero"); b.type = "button";
+        b.appendChild(h("div", "tag", (x.src === "alpha" ? "Binance Alpha" : "Binance") + " · score " + x.score + "/100"));
+        var n = h("div", "name", base(x.symbol)); n.appendChild(h("small", "", " / USDT")); b.appendChild(n);
+        var m = h("div", "muted"); m.appendChild(document.createTextNode(when(x.ts) + " · ")); m.appendChild(signed(x.change_24h)); b.appendChild(m);
+        if (!x.locked) {
+          var lv = h("div", "lv");
+          [["Entrée", x.price], ["Stop", x.stop], ["Objectif 1", x.tp1], ["Objectif 2", x.tp2]].forEach(function (p) {
+            var c2 = h("div"); c2.appendChild(h("span", "", p[0])); c2.appendChild(h("b", "num", price(p[1]))); lv.appendChild(c2);
+          });
+          b.appendChild(lv);
+        }
+        b.addEventListener("click", function () { openTrade(x); });
+        hg.appendChild(b);
+      });
+      sec.appendChild(hg);
+    }
+    root.appendChild(sec);
+
+    var two = h("section", "grid g2");
+    var left = h("div");
+    left.appendChild(h("h2", "", "Meilleurs scores du moment"));
+    var best = items("radar").concat(items("alpha")).sort(function (a, b) { return b.score - a.score; }).slice(0, 8);
+    left.appendChild(tableOf(best, 70, "Le premier passage n'est pas encore terminé."));
+    two.appendChild(left);
+    var right = h("div");
+    right.appendChild(h("h2", "", "Bilan réel des alertes"));
+    var card = h("div", "card");
+    var g = (d.tracking && d.tracking.groups) || {}, any = false;
+    KIND_ORDER.forEach(function (key) {
+      var x = g[key]; if (!x || !x.closed) return; any = true;
+      var line = h("div", "row"); line.style.justifyContent = "space-between"; line.style.padding = "7px 0";
+      line.appendChild(h("span", "", KINDS[key]));
+      var v = h("span", "num"); v.appendChild(document.createTextNode(x.closed + " · " + Math.round(x.win_rate) + " % · ")); v.appendChild(colored(rText(x.avg_r), x.avg_r)); line.appendChild(v);
+      card.appendChild(line);
+    });
+    if (!any) card.appendChild(h("div", "muted", "Aucune alerte terminée pour l'instant. Chaque alerte est suivie jusqu'à son objectif ou son stop."));
+    card.appendChild(h("div", "note", "")).textContent = "Nombre d'alertes terminées · part de gagnantes · résultat moyen en R (multiple du risque).";
+    card.lastChild.style.margin = "10px 0 0";
+    right.appendChild(card);
+    var nl = (s.news || []).slice(0, 5);
+    if (nl.length) {
+      right.appendChild(h("h2", "", "Actualités")).style.marginTop = "18px";
+      var nc = h("div", "card"), ul = h("ul", "clean");
+      nl.forEach(function (n) {
+        var li = h("li");
+        var a = h("a", "", n.title); if (/^https:\/\//.test(n.link)) { a.href = n.link; a.target = "_blank"; a.rel = "noopener noreferrer"; }
+        li.appendChild(a); li.appendChild(h("div", "muted", n.source + " · " + ago(n.ts))); ul.appendChild(li);
+      });
+      nc.appendChild(ul); right.appendChild(nc);
+    }
+    two.appendChild(right);
+    root.appendChild(two);
+  }
+
+  // ---------- Signaux ----------
+  var TABS = [["radar", "Binance"], ["alpha", "Binance Alpha"], ["pre", "Sous pression"], ["wide", "Réveils"], ["repli", "Replis"]];
+  var TAB_NOTES = {
+    radar: "Cassure d'un plus haut de 24 h avec un volume très supérieur à l'habitude, sur toutes les paires USDT de Binance.",
+    alpha: "Même signal sur les jetons de la rubrique Binance Alpha : très volatils, liquidité faible.",
+    pre: "Prix calme et acheteurs qui accumulent sous une résistance. Liste d'observation : au test sur l'historique, acheter ces configurations a perdu de l'argent.",
+    wide: "Petites cryptos dont le volume se réveille, parmi 4000 suivies. À surveiller, pas un ordre d'achat.",
+    repli: "Repli dans une tendance haussière de fond, sur les grandes paires, en bougies d'une heure."
+  };
+  function viewSignals(root) {
+    var ln = lockNote(); if (ln) { root.appendChild(ln); root.appendChild(h("div")).style.height = "12px"; }
+    var tabs = h("div", "tabs");
+    TABS.forEach(function (t) {
+      var list = items(t[0]);
+      var active = list.filter(function (x) { return x.kind === "wide" ? x.alert : x.signal; }).length;
+      var b = h("button", "tab" + (state.tab === t[0] ? " on" : ""), t[1]); b.type = "button";
+      if (active) b.appendChild(h("i", "", String(active)));
+      b.addEventListener("click", function () { state.tab = t[0]; render(); });
+      tabs.appendChild(b);
+    });
+    root.appendChild(tabs);
+    root.appendChild(h("div", "note", TAB_NOTES[state.tab]));
+    var d = state.data || {};
+    if ((state.tab === "radar" || state.tab === "alpha") && (d[state.tab] || {}).market === "down")
+      root.appendChild(h("div", "banner", "Le Bitcoin est en tendance baissière : les alertes d'explosion sont suspendues. Les cassures restent visibles ci-dessous avec la mention « retenue »."));
+    if (state.tab === "alpha" && d.alpha && d.alpha.available === false)
+      root.appendChild(h("div", "banner", "Binance Alpha ne répond pas depuis le serveur pour l'instant."));
+    var sp = h("div"); sp.style.height = "10px"; root.appendChild(sp);
+    root.appendChild(tableOf(items(state.tab), minScore(state.tab), "Aucune donnée pour l'instant."));
+  }
+
+  // ---------- Trader ----------
+  function openTrade(x) { state.pick = x; state.chart = null; go("trade"); }
+  function dexLink(x) {
+    var me = state.me || {}, t = x.token;
+    if (!me.dex_url || !t || !/^0x[0-9a-fA-F]{40}$/.test(t.contract || "") || String(t.chain_id) !== "56") return "";
+    return me.dex_url.replace("{address}", t.contract).replace("{symbol}", encodeURIComponent(base(x.symbol)));
+  }
+  function extLink(text, href, cls) {
+    var a = h("a", "btn " + (cls || ""), text); a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; return a;
+  }
+  function viewTrade(root) {
+    var x = state.pick, me = state.me || {};
+    var search = h("div", "row"); search.style.marginBottom = "14px";
+    var inp = h("input"); inp.placeholder = "Chercher une paire Binance, ex. SOL"; inp.setAttribute("aria-label", "Paire Binance");
+    inp.style.cssText = "flex:1;min-width:180px;background:#0a1018;border:1px solid var(--line2);border-radius:11px;padding:10px 12px;outline:none";
+    var goBtn = h("button", "btn", "Afficher"); goBtn.type = "button";
+    function pick() {
+      var s = inp.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""); if (!s) return;
+      if (!/USDT$/.test(s)) s += "USDT";
+      openTrade({ kind: "libre", src: "spot", symbol: s });
+    }
+    goBtn.addEventListener("click", pick); inp.addEventListener("keydown", function (e) { if (e.key === "Enter") pick(); });
+    search.appendChild(inp); search.appendChild(goBtn); root.appendChild(search);
+    if (!x) {
+      root.appendChild(h("div", "card empty", "Choisis une crypto dans Signaux, ou cherche une paire ci-dessus, pour afficher son graphique, ses niveaux et le calculateur de position."));
+      return;
+    }
+    var wrap = h("div", "trade");
+    // -- graphique
+    var left = h("div", "card");
+    var head = h("h3");
+    var nm = h("span", "", (x.kind === "wide" ? x.symbol : base(x.symbol)) + (x.kind === "wide" ? "" : " / USDT"));
+    nm.style.fontSize = "19px"; head.appendChild(nm);
+    var ivs = h("span", "row");
+    if (x.src !== "wide") ["15m", "1h", "4h", "1d"].forEach(function (iv) {
+      var b = h("button", "btn small" + (state.interval === iv ? " primary" : ""), iv); b.type = "button";
+      b.addEventListener("click", function () { state.interval = iv; state.chart = null; render(); });
+      ivs.appendChild(b);
+    });
+    head.appendChild(ivs); left.appendChild(head);
+    var box = h("div", "chartbox"), cv = h("canvas"), msg = h("div", "chartmsg", "Chargement du graphique…");
+    box.appendChild(cv); box.appendChild(msg); left.appendChild(box);
+    wrap.appendChild(left);
+    if (x.src === "wide") msg.textContent = "Pas de graphique pour cette crypto : elle n'est pas forcément cotée sur Binance.";
+    else if (state.chart && state.chart.error) msg.textContent = state.chart.error;
+    else if (state.chart) { msg.remove(); state.cv = cv; requestAnimationFrame(function () { draw(cv, state.chart, x); }); }
+    else {
+      var id = x.src === "alpha" ? (x.sid || "") : x.symbol;
+      api("/api/klines?src=" + (x.src === "alpha" ? "alpha" : "spot") + "&symbol=" + encodeURIComponent(id) + "&interval=" + state.interval).then(function (r) {
+        if (state.pick !== x) return;
+        state.chart = r.ok && r.data.c && r.data.c.length ? r.data : { error: (r.data && r.data.error) || "Graphique indisponible." };
+        if (r.ok && (x.price === undefined || x.price === null)) x.price = r.data.c[r.data.c.length - 1];
+        if (state.view === "trade") render();
+      });
+    }
+    // -- panneau
+    var right = h("div", "grid");
+    var lv = h("div", "card");
+    var lh = h("h3", "", "Plan de trade"); lh.appendChild(statePill(x.kind === "libre" ? { kind: "radar" } : x)); lv.appendChild(lh);
+    if (x.kind === "libre") lh.lastChild.remove();
+    if (x.locked) {
+      lv.appendChild(h("div", "lock", "Niveaux réservés aux abonnés."));
+      var a = h("a", "btn primary", "Voir les formules"); a.href = "#plans"; a.style.marginTop = "10px"; lv.appendChild(a);
+    } else {
+      var f = h("div", "facts");
+      function fact(k, v) { var d2 = h("div", "fact"); d2.appendChild(h("span", "", k)); d2.appendChild(h("b", "num", v)); f.appendChild(d2); }
+      fact("Prix", price(x.price));
+      if (x.score !== undefined) fact("Score", x.score + " / 100");
+      if (x.stop) { fact("Stop", price(x.stop)); fact("Objectif 1", price(x.tp1)); fact("Objectif 2", price(x.tp2)); }
+      if (x.trigger) fact("Niveau à casser", price(x.trigger));
+      if (x.kind === "wide") { fact("Volume 24 h", money(x.volume)); fact("Capitalisation", money(x.mcap)); }
+      lv.appendChild(f);
+      if (x.kind !== "libre" && x.kind !== "wide" && !x.signal)
+        lv.appendChild(h("div", "note", x.suspended ? "Cassure retenue : le Bitcoin baisse, aucune alerte n'est envoyée." : "Pas de signal actif : ces niveaux sont indicatifs.")).style.margin = "10px 0 0";
+    }
+    var actions = h("div", "row"); actions.style.marginTop = "14px";
+    var dx = dexLink(x);
+    if (dx) actions.appendChild(extLink("Trader sur Pay212 DEX", dx, "primary"));
+    if (x.src === "spot") actions.appendChild(extLink("Ouvrir sur Binance", "https://www.binance.com/fr/trade/" + encodeURIComponent(base(x.symbol)) + "_USDT", dx ? "" : "primary"));
+    if (x.token && /^0x[0-9a-fA-F]{40}$/.test(x.token.contract || "") && String(x.token.chain_id) === "56")
+      actions.appendChild(extLink("Contrat sur BscScan", "https://bscscan.com/token/" + x.token.contract, "ghost"));
+    if (x.kind === "wide" && /^[a-z0-9-]{1,80}$/.test(x.id || "")) actions.appendChild(extLink("Fiche CoinGecko", "https://www.coingecko.com/en/coins/" + x.id, "primary"));
+    lv.appendChild(actions);
+    if (x.src === "alpha" && !dx)
+      lv.appendChild(h("div", "note", me.dex_url ? "Ce jeton n'est pas sur BNB Chain : il ne peut pas être échangé sur Pay212 DEX." : "Le lien vers Pay212 DEX n'est pas encore configuré.")).style.margin = "10px 0 0";
+    lv.appendChild(h("div", "note", "L'app ne passe aucun ordre et ne garde aucune clé : tu signes toi-même dans ton wallet.")).style.margin = "10px 0 0";
+    right.appendChild(lv);
+
+    if (!x.locked && x.stop && x.price > x.stop) right.appendChild(calculator(x));
+    var why = (x.reasons || []), miss = (x.missing || []);
+    if (why.length || miss.length) {
+      var wc = h("div", "card"); wc.appendChild(h("h3", "", "Pourquoi ce score"));
+      var ul = h("ul", "clean");
+      why.forEach(function (t) { ul.appendChild(h("li", "y", t)); });
+      miss.slice(0, 6).forEach(function (t) { ul.appendChild(h("li", "n", t)); });
+      wc.appendChild(ul); right.appendChild(wc);
+    }
+    [["Le jeton", x.info], ["Niveaux et flux d'ordres", x.levels && x.levels.lines]].forEach(function (p) {
+      if (!p[1] || !p[1].length) return;
+      var c = h("div", "card"); c.appendChild(h("h3", "", p[0]));
+      var ul2 = h("ul", "clean"); p[1].forEach(function (t) { ul2.appendChild(h("li", "", t)); }); c.appendChild(ul2); right.appendChild(c);
+    });
+    wrap.appendChild(right);
+    root.appendChild(wrap);
+  }
+  function calculator(x) {
+    var me = state.me || {}, c = h("div", "card");
+    c.appendChild(h("h3", "", "Calculateur de position"));
+    var g = h("div", "facts");
+    function field(label, value) {
+      var l = h("label", "field"); l.appendChild(h("span", "", label));
+      var i = h("input"); i.type = "number"; i.min = "0"; i.step = "any"; i.value = value; i.inputMode = "decimal"; l.appendChild(i); g.appendChild(l); return i;
+    }
+    var cap = field("Capital (USDT)", me.capital || 1000), risk = field("Risque par trade (%)", me.risk_pct || 1);
+    c.appendChild(g);
+    var out = h("div", "facts"); c.appendChild(out);
+    function calc() {
+      var capital = parseFloat(cap.value) || 0, r = parseFloat(risk.value) || 0;
+      var loss = capital * r / 100, dist = x.price - x.stop, qty = dist > 0 ? loss / dist : 0, size = qty * x.price;
+      out.replaceChildren();
+      [["Montant à acheter", usd(Math.min(size, capital)) + " USDT"], ["Quantité", price(Math.min(size, capital) / x.price)],
+       ["Perte si stop touché", "−" + usd(Math.min(size, capital) / x.price * dist) + " USDT"],
+       ["Gain à l'objectif 2", "+" + usd(Math.min(size, capital) / x.price * (x.tp2 - x.price)) + " USDT"]].forEach(function (p) {
+        var d = h("div", "fact"); d.appendChild(h("span", "", p[0])); d.appendChild(h("b", "num", p[1])); out.appendChild(d);
+      });
+      if (size > capital) out.appendChild(h("div", "note", "Le stop est très proche : la position est plafonnée à ton capital."));
+    }
+    cap.addEventListener("input", calc); risk.addEventListener("input", calc); calc();
+    return c;
+  }
+  function draw(cv, k, x) {
+    var box = cv.parentNode, W = box.clientWidth, H = box.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (!W || !H) return;
+    cv.width = W * dpr; cv.height = H * dpr;
+    var g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+    var n = Math.min(k.c.length, Math.max(40, Math.floor((W - 70) / 7))), s = k.c.length - n;
+    var lines = x.locked ? [] : [["Stop", x.stop, "#ff6b6b"], ["Obj. 1", x.tp1, "#35d08a"], ["Obj. 2", x.tp2, "#35d08a"], ["À casser", x.trigger, "#f5b942"]].filter(function (l) { return l[1]; });
+    var lo = Infinity, hi = -Infinity, vmax = 0, i;
+    for (i = s; i < k.c.length; i++) { lo = Math.min(lo, k.l[i]); hi = Math.max(hi, k.h[i]); vmax = Math.max(vmax, k.v[i]); }
+    lines.forEach(function (l) { if (l[1] > lo * 0.6 && l[1] < hi * 1.6) { lo = Math.min(lo, l[1]); hi = Math.max(hi, l[1]); } });
+    var pad = (hi - lo) * 0.06 || hi * 0.01; lo -= pad; hi += pad;
+    var R = 66, top = 10, ph = H - 78, vh = 46, cw = (W - R) / n;
+    function y(p) { return top + (hi - p) / (hi - lo) * ph; }
+    g.font = "11px -apple-system, Segoe UI, sans-serif"; g.textBaseline = "middle";
+    for (i = 0; i <= 4; i++) {
+      var p = lo + (hi - lo) * i / 4, yy = y(p);
+      g.strokeStyle = "rgba(255,255,255,.05)"; g.beginPath(); g.moveTo(0, yy); g.lineTo(W - R, yy); g.stroke();
+      g.fillStyle = "#5d6c80"; g.fillText(price(p), W - R + 6, yy);
+    }
+    for (i = s; i < k.c.length; i++) {
+      var cx = (i - s) * cw + cw / 2, upc = k.c[i] >= k.o[i], col = upc ? "#35d08a" : "#ff6b6b";
+      g.strokeStyle = col; g.fillStyle = col;
+      g.beginPath(); g.moveTo(cx, y(k.h[i])); g.lineTo(cx, y(k.l[i])); g.stroke();
+      var y1 = y(Math.max(k.o[i], k.c[i])), y2 = y(Math.min(k.o[i], k.c[i]));
+      g.fillRect(cx - Math.max(1, cw * 0.32), y1, Math.max(2, cw * 0.64), Math.max(1, y2 - y1));
+      g.globalAlpha = 0.35; var bh = vmax ? k.v[i] / vmax * vh : 0; g.fillRect(cx - Math.max(1, cw * 0.32), H - 8 - bh, Math.max(2, cw * 0.64), bh); g.globalAlpha = 1;
+    }
+    lines.forEach(function (l) {
+      if (l[1] < lo || l[1] > hi) return;
+      var yy2 = y(l[1]);
+      g.setLineDash([5, 4]); g.strokeStyle = l[2]; g.beginPath(); g.moveTo(0, yy2); g.lineTo(W - R, yy2); g.stroke(); g.setLineDash([]);
+      g.fillStyle = l[2]; g.fillRect(W - R, yy2 - 9, R, 18); g.fillStyle = "#0b1017"; g.fillText(l[0], W - R + 5, yy2);
+    });
+    var last = k.c[k.c.length - 1], yl = y(last);
+    g.fillStyle = "#e8eef6"; g.fillRect(W - R, yl - 9, R, 18); g.fillStyle = "#0b1017"; g.fillText(price(last), W - R + 5, yl);
+  }
+
+  // ---------- Bilan ----------
+  function outcomeNode(o) {
+    if (!o || o.status === "open") {
+      var w = h("span", "muted", "en cours ");
+      if (o && typeof o.pct === "number") w.appendChild(colored(pct(o.pct, true), o.pct));
+      return w;
+    }
+    if (o.status === "unknown" || o.status === "invalid") return h("span", "muted", "non suivi");
+    var names = { tp2: "objectif atteint", stop: "stop touché", expired: "sortie au temps" };
+    var n = h("span", "", names[o.status] + " · "); n.appendChild(colored(rText(o.r), o.r)); return n;
+  }
+  function viewTally(root) {
+    var d = state.data || {}, t = d.tracking || {}, g = t.groups || {};
+    root.appendChild(h("div", "note", "Chaque alerte est rejouée sur les bougies qui ont suivi : entrée à l'ouverture suivante, sortie à l'objectif 2, au stop ou après " + (t.max_bars || 72) + " bougies, frais déduits. R = multiple du risque pris. Il faut au moins 30 alertes terminées par ligne pour commencer à juger. Rien n'est acheté : c'est un suivi sur le papier."));
+    var tb = h("div", "table"), head = h("div", "tr th");
+    ["Type d'alerte", "Terminées", "Gagnantes", "Moyenne", "Total"].forEach(function (c, i) { head.appendChild(h("div", (i ? "right " : "") + (i >= 3 ? "opt" : ""), c)); });
+    tb.appendChild(head);
+    var keys = KIND_ORDER.filter(function (k) { return g[k]; });
+    if (!keys.length) tb.appendChild(h("div", "empty", "Aucune alerte suivie pour l'instant. Le bilan se remplit au fil des jours."));
+    keys.forEach(function (k) {
+      var x = g[k], r = h("div", "tr");
+      r.appendChild(h("div", "sym", KINDS[k] || k));
+      r.appendChild(h("div", "num right", x.closed + (x.open ? " (+" + x.open + " en cours)" : "")));
+      r.appendChild(h("div", "num right", x.closed ? Math.round(x.win_rate) + " %" : "—"));
+      var a = h("div", "num right opt"); if (x.closed) a.appendChild(colored(rText(x.avg_r), x.avg_r)); else a.textContent = "—"; r.appendChild(a);
+      var tt = h("div", "num right opt"); if (x.closed) tt.appendChild(colored(rText(x.total_r), x.total_r)); else tt.textContent = "—"; r.appendChild(tt);
+      tb.appendChild(r);
+    });
+    root.appendChild(tb);
+    var sec = h("section"); sec.appendChild(h("h2", "", "Dernières alertes"));
+    var lt = h("div", "table"), sig = d.signals || [];
+    if (!sig.length) lt.appendChild(h("div", "empty", "Aucune alerte enregistrée pour l'instant."));
+    sig.slice(0, 30).forEach(function (x) {
+      var r = h("div", "tr");
+      var nm = h("div", "sym", base(x.symbol)); nm.appendChild(h("small", "", " · " + (KINDS[x.kind] || KINDS.repli).toLowerCase())); r.appendChild(nm);
+      r.appendChild(h("div", "num right", when(x.ts)));
+      var o = h("div", "num"); o.appendChild(x.locked ? h("span", "muted", "abonnés") : outcomeNode(x.outcome)); r.appendChild(o);
+      r.appendChild(h("div", "num right opt", "Entrée " + price(x.price)));
+      r.appendChild(h("div", "num right opt", x.score + "/100"));
+      lt.appendChild(r);
+    });
+    sec.appendChild(lt); root.appendChild(sec);
+    var w = d.wide || {}, sm = w.summary || {};
+    var ws = h("section"); ws.appendChild(h("h2", "", "Bilan des réveils (marché large)"));
+    ws.appendChild(h("div", "card", sm.count ? sm.count + " réveils arrivés à 24 h · résultat moyen " + pct(sm.average, true) + " · " + Math.round(sm.positive_pct) + " % en hausse." : "Chaque réveil est suivi : son résultat est figé 24 h après l'alerte."));
+    root.appendChild(ws);
+  }
+
+  // ---------- Abonnement ----------
+  function viewPlans(root) {
+    var me = state.me || {}, u = me.user, pay = me.pay || {};
+    if (u && u.active) root.appendChild(h("div", "banner good", "Ton abonnement est actif jusqu'au " + day(u.sub_until) + "."));
+    else if (!me.paywall) root.appendChild(h("div", "banner info", "Accès libre pour l'instant : tout le contenu est visible sans abonnement."));
+    if (!pay.ready) root.appendChild(h("div", "banner", "Les abonnements ne sont pas encore ouverts.")).style.marginTop = "10px";
+    var sp = h("div"); sp.style.height = "18px"; root.appendChild(sp);
+    var grid = h("div", "plans"), plans = me.plans || [];
+    plans.forEach(function (p, i) {
+      var c = h("div", "card plan" + (i === 1 ? " best" : ""));
+      if (i === 1) c.appendChild(h("div", "ribbon", "Le plus choisi"));
+      c.appendChild(h("div", "muted", p.label));
+      var pr = h("div", "p num", String(p.price).replace(".", ",")); pr.appendChild(h("small", "", " " + (pay.symbol || "USDT"))); c.appendChild(pr);
+      c.appendChild(h("div", "muted", p.days + " jours d'accès · " + (p.price / p.days).toFixed(2).replace(".", ",") + " " + (pay.symbol || "USDT") + " par jour"));
+      var b = h("button", "btn " + (i === 1 ? "primary" : ""), u ? "Choisir" : "Créer un compte"); b.type = "button"; b.style.marginTop = "16px"; b.style.width = "100%";
+      b.disabled = !pay.ready && !!u;
+      b.addEventListener("click", function () {
+        if (!u) { state.authMode = "register"; go("account"); return; }
+        b.disabled = true;
+        api("/api/orders", { plan: p.id }).then(function (r) {
+          b.disabled = false;
+          if (r.ok) { state.order = r.data; state.payMsg = null; render(); } else alertMsg(r.data.error);
+        });
+      });
+      c.appendChild(b); grid.appendChild(c);
+    });
+    root.appendChild(grid);
+    var inc = h("section"); inc.appendChild(h("h2", "", "Ce que comprend l'abonnement"));
+    var ic = h("div", "card"), ul = h("ul", "clean");
+    ["Alertes d'explosion sur toutes les paires USDT de Binance et sur Binance Alpha, toutes les 15 minutes",
+     "Niveaux d'entrée, de stop et d'objectifs, graphique et calculateur de position",
+     "Balayage de 4000 cryptos, actualités et niveaux de volume",
+     "Bilan réel et public de chaque alerte : rien n'est caché"].forEach(function (t) { ul.appendChild(h("li", "y", t)); });
+    ic.appendChild(ul);
+    ic.appendChild(h("div", "note", "Outil d'analyse, pas un conseil financier. Aucun gain n'est garanti : consulte le bilan avant de t'abonner.")).style.margin = "10px 0 0";
+    inc.appendChild(ic); root.appendChild(inc);
+    if (state.order && u) root.appendChild(payPanel());
+  }
+  function alertMsg(t) { state.payMsg = { cls: "err", text: t || "Une erreur est survenue." }; render(); }
+  function copyRow(label, value) {
+    var w = h("div"); w.appendChild(h("div", "muted", label)).style.cssText = "font-size:12.5px;margin-bottom:5px";
+    var c = h("div", "copy"); c.appendChild(h("code", "", value));
+    var b = h("button", "btn small", "Copier"); b.type = "button";
+    b.addEventListener("click", function () { if (navigator.clipboard) navigator.clipboard.writeText(value).then(function () { b.textContent = "Copié"; setTimeout(function () { b.textContent = "Copier"; }, 1500); }); });
+    c.appendChild(b); w.appendChild(c); return w;
+  }
+  function payPanel() {
+    var me = state.me, pay = me.pay, o = state.order;
+    var sec = h("section"); sec.id = "pay"; sec.appendChild(h("h2", "", "Paiement de ta commande"));
+    var c = h("div", "card");
+    c.appendChild(h("div", "note", "Envoie exactement ce montant, en " + pay.symbol + " sur le réseau " + pay.network + ". Le montant exact identifie ta commande : ne l'arrondis pas. Valable 60 minutes.")).style.margin = "0 0 12px";
+    c.appendChild(copyRow("Montant exact", o.amount + " " + pay.symbol));
+    c.appendChild(copyRow("Adresse de paiement (" + pay.network + ")", pay.address));
+    var row = h("div", "row");
+    if (window.ethereum) {
+      var wb = h("button", "btn primary", "Payer avec mon wallet"); wb.type = "button";
+      wb.addEventListener("click", function () { walletPay(wb); }); row.appendChild(wb);
+    }
+    c.appendChild(row);
+    var l = h("label", "field"); l.style.marginTop = "14px";
+    l.appendChild(h("span", "", "Déjà payé ? Colle l'identifiant de la transaction (hash, commence par 0x)"));
+    var inp = h("input"); inp.placeholder = "0x…"; inp.autocomplete = "off"; inp.spellcheck = false; inp.value = state.payTx || ""; l.appendChild(inp); c.appendChild(l);
+    var vb = h("button", "btn", "Vérifier le paiement"); vb.type = "button";
+    vb.addEventListener("click", function () { state.payTx = inp.value.trim(); confirmPay(state.payTx, 0); });
+    c.appendChild(vb);
+    var m = state.payMsg || {}; c.appendChild(h("div", "msg " + (m.cls || ""), m.text || ""));
+    sec.appendChild(c); return sec;
+  }
+  function confirmPay(tx, tries) {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) { alertMsg("Identifiant de transaction invalide : 0x suivi de 64 caractères."); return; }
+    state.payMsg = { cls: "", text: "Vérification sur la blockchain…" }; if (state.view === "plans") render();
+    api("/api/orders/confirm", { id: state.order.id, tx: tx }).then(function (r) {
+      if (r.ok) {
+        state.order = null; state.payTx = "";
+        state.payMsg = null;
+        loadMe().then(function () { loadStatus(); go("plans"); });
+      } else if (r.status === 202 && tries < 40) {
+        state.payMsg = { cls: "", text: r.data.error + " Nouvelle vérification automatique dans quelques secondes." };
+        if (state.view === "plans") render();
+        setTimeout(function () { if (state.order) confirmPay(tx, tries + 1); }, 6000);
+      } else alertMsg(r.data.error);
+    });
+  }
+  function walletPay(btn) {
+    var eth = window.ethereum, me = state.me, pay = me.pay, o = state.order;
+    btn.disabled = true;
+    function hex(n) { return BigInt(n).toString(16); }
+    eth.request({ method: "eth_requestAccounts" }).then(function (acc) {
+      return eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + hex(pay.chain_id) }] }).then(function () { return acc[0]; });
+    }).then(function (from) {
+      var data = "0xa9059cbb" + pay.address.slice(2).toLowerCase().padStart(64, "0") + hex(o.units).padStart(64, "0");
+      return eth.request({ method: "eth_sendTransaction", params: [{ from: from, to: pay.token, data: data, value: "0x0" }] });
+    }).then(function (tx) {
+      state.payTx = tx; confirmPay(tx, 0);
+    }).catch(function (e) {
+      btn.disabled = false;
+      alertMsg(e && e.code === 4001 ? "Paiement annulé dans le wallet." : "Le wallet a refusé l'opération. Vérifie que tu es sur BNB Chain et que tu as assez de " + pay.symbol + " et de BNB pour les frais.");
+    });
+  }
+
+  // ---------- Compte ----------
+  function viewAccount(root) {
+    var me = state.me || {}, u = me.user;
+    if (!u) {
+      var c = h("div", "card"); c.style.maxWidth = "440px";
+      var reg = state.authMode === "register";
+      c.appendChild(h("h3", "", reg ? "Créer un compte" : "Connexion"));
+      var f = h("form");
+      function field(label, type, auto) { var l = h("label", "field"); l.appendChild(h("span", "", label)); var i = h("input"); i.type = type; i.autocomplete = auto; i.required = true; l.appendChild(i); f.appendChild(l); return i; }
+      var em = field("Adresse e-mail", "email", "email"), pw = field("Mot de passe" + (reg ? " (8 caractères au moins)" : ""), "password", reg ? "new-password" : "current-password");
+      var sb = h("button", "btn primary", reg ? "Créer mon compte" : "Me connecter"); sb.type = "submit"; sb.style.width = "100%"; f.appendChild(sb);
+      var m = h("div", "msg err"); f.appendChild(m);
+      f.addEventListener("submit", function (e) {
+        e.preventDefault(); sb.disabled = true; m.textContent = "";
+        api(reg ? "/api/register" : "/api/login", { email: em.value, password: pw.value }).then(function (r) {
+          sb.disabled = false;
+          if (!r.ok) { m.textContent = r.data.error || "Connexion impossible."; return; }
+          state.me = r.data; loadMe().then(function () { loadStatus(); go(r.data.paywall && !r.data.access ? "plans" : "home"); });
+        });
+      });
+      c.appendChild(f);
+      var sw = h("button", "btn ghost", reg ? "J'ai déjà un compte" : "Créer un compte"); sw.type = "button"; sw.style.cssText = "width:100%;margin-top:6px";
+      sw.addEventListener("click", function () { state.authMode = reg ? "login" : "register"; render(); });
+      c.appendChild(sw);
+      root.appendChild(c);
+      return;
+    }
+    var g = h("div", "grid g2");
+    var c1 = h("div", "card"); c1.appendChild(h("h3", "", "Mon compte"));
+    var f2 = h("div", "facts");
+    [["Adresse e-mail", u.email], ["Abonnement", u.active ? "Actif jusqu'au " + day(u.sub_until) : (me.paywall ? "Aucun" : "Accès libre")]].forEach(function (p) {
+      var d = h("div", "fact"); d.appendChild(h("span", "", p[0])); d.appendChild(h("b", "", p[1])); f2.appendChild(d);
+    });
+    c1.appendChild(f2);
+    var r = h("div", "row"); r.style.marginTop = "14px";
+    var pb = h("button", "btn primary", u.active ? "Prolonger" : "Voir les formules"); pb.type = "button"; pb.addEventListener("click", function () { go("plans"); }); r.appendChild(pb);
+    var lo = h("button", "btn", "Se déconnecter"); lo.type = "button";
+    lo.addEventListener("click", function () { api("/api/logout", {}).then(function () { state.order = null; state.admin = null; loadMe().then(function () { loadStatus(); render(); }); }); });
+    r.appendChild(lo); c1.appendChild(r); g.appendChild(c1);
+    var c2 = h("div", "card"); c2.appendChild(h("h3", "", "Installer l'application"));
+    var ul = h("ul", "clean");
+    ["iPhone : ouvre cette page dans Safari, touche Partager, puis « Sur l'écran d'accueil ».", "Mac : dans Chrome, menu ⋮, « Caster, enregistrer et partager », puis « Installer la page en tant qu'application »."].forEach(function (t) { ul.appendChild(h("li", "", t)); });
+    c2.appendChild(ul); g.appendChild(c2);
+    root.appendChild(g);
+    if (u.admin) adminPanel(root);
+  }
+  function adminPanel(root) {
+    var sec = h("section"); sec.appendChild(h("h2", "", "Administration"));
+    root.appendChild(sec);
+    if (!state.admin) {
+      sec.appendChild(h("div", "card empty", "Chargement…"));
+      api("/api/admin").then(function (r) { if (r.ok) { state.admin = r.data; if (state.view === "account") render(); } });
+      return;
+    }
+    var a = state.admin, k = h("div", "grid g4");
+    [["Comptes", a.users], ["Abonnés actifs", a.active], ["Paiements reçus", a.paid_orders], ["Revenus", a.revenue + " USDT"]].forEach(function (p) {
+      var c = h("div", "card kpi"); c.appendChild(h("div", "k", p[0])); c.appendChild(h("div", "v num", String(p[1]))); k.appendChild(c);
+    });
+    sec.appendChild(k);
+    var notes = [];
+    if (!a.pay_ready) notes.push("Abonnements fermés : renseigne « pay_address » (ton adresse BNB Chain) dans config.json.");
+    if (!a.paywall) notes.push("Paywall inactif : tout le contenu est gratuit. Mets « paywall » à true dans config.json pour réserver les niveaux aux abonnés.");
+    if (!a.dex_url) notes.push("Lien Pay212 DEX non configuré : renseigne « dex_url » dans config.json.");
+    notes.forEach(function (t) { sec.appendChild(h("div", "banner", t)).style.marginTop = "10px"; });
+    var gc = h("div", "card"); gc.style.marginTop = "14px"; gc.appendChild(h("h3", "", "Offrir ou prolonger un abonnement"));
+    var row = h("div", "row");
+    var em = h("input"); em.type = "email"; em.placeholder = "adresse e-mail du compte"; em.style.cssText = "flex:2;min-width:200px;background:#0a1018;border:1px solid var(--line2);border-radius:11px;padding:10px 12px";
+    var dy = h("input"); dy.type = "number"; dy.value = "30"; dy.min = "1"; dy.style.cssText = "width:110px;background:#0a1018;border:1px solid var(--line2);border-radius:11px;padding:10px 12px";
+    var gb = h("button", "btn primary", "Ajouter des jours"); gb.type = "button";
+    var gm = h("div", "msg");
+    gb.addEventListener("click", function () {
+      api("/api/admin/grant", { email: em.value, days: parseInt(dy.value, 10) }).then(function (r) {
+        gm.className = "msg " + (r.ok ? "ok" : "err");
+        gm.textContent = r.ok ? "Abonnement actif jusqu'au " + day(r.data.sub_until) + "." : (r.data.error || "Erreur.");
+        if (r.ok) { state.admin = null; loadMe(); }
+      });
+    });
+    row.appendChild(em); row.appendChild(dy); row.appendChild(gb); gc.appendChild(row); gc.appendChild(gm); sec.appendChild(gc);
+    var ut = h("div", "table"); ut.style.marginTop = "14px";
+    var head = h("div", "tr th"); ["Compte", "Inscrit le", "Abonnement", "", ""].forEach(function (c, i) { head.appendChild(h("div", i ? "right" + (i > 2 ? " opt" : "") : "", c)); }); ut.appendChild(head);
+    (a.recent_users || []).forEach(function (x) {
+      var r = h("div", "tr");
+      r.appendChild(h("div", "sym", x.email + (x.is_admin ? " (admin)" : "")));
+      r.appendChild(h("div", "num right", when(x.created)));
+      r.appendChild(h("div", "num right", x.sub_until > Date.now() ? "jusqu'au " + day(x.sub_until) : "—"));
+      r.appendChild(h("div", "opt")); r.appendChild(h("div", "opt"));
+      ut.appendChild(r);
+    });
+    sec.appendChild(ut);
+  }
+
+  // ---------- navigation ----------
+  var TITLES = {
+    home: ["Accueil", "Ce que le scanner voit en ce moment"], signals: ["Signaux", "Toutes les cryptos notées, par type de signal"],
+    trade: ["Trader", "Graphique, niveaux et taille de position"], tally: ["Bilan", "Ce que les alertes ont vraiment donné"],
+    plans: ["Abonnement", "Paiement en USDT sur BNB Chain, sans intermédiaire"], account: ["Compte", ""]
+  };
+  function buildNav() {
+    ["navSide", "navBar"].forEach(function (id) {
+      var box = $(id); box.replaceChildren();
+      VIEWS.forEach(function (v) {
+        var b = h("button", "nav" + (state.view === v[0] ? " on" : "")); b.type = "button";
+        b.appendChild(svg(ICONS[v[0]])); b.appendChild(h("span", "", v[1]));
+        b.addEventListener("click", function () { go(v[0]); });
+        box.appendChild(b);
+      });
+    });
+  }
+  function go(v) {
+    state.view = v;
+    if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
+    render(); window.scrollTo(0, 0);
+  }
+  function render() {
+    buildNav();
+    $("title").textContent = TITLES[state.view][0];
+    $("subtitle").textContent = TITLES[state.view][1];
+    var root = h("div");
+    ({ home: viewHome, signals: viewSignals, trade: viewTrade, tally: viewTally, plans: viewPlans, account: viewAccount })[state.view](root);
+    $("view").replaceChildren(root);
+  }
+  $("accountBtn").addEventListener("click", function () { go("account"); });
+  window.addEventListener("hashchange", function () { var v = location.hash.slice(1); if (TITLES[v] && v !== state.view) go(v); });
+  window.addEventListener("resize", function () {
+    if (state.view === "trade" && state.chart && !state.chart.error && state.cv && state.cv.isConnected) draw(state.cv, state.chart, state.pick);
+  });
+  var first = location.hash.slice(1); if (TITLES[first]) state.view = first;
+  render();
+  loadMe().then(loadStatus).then(render);
+  setInterval(loadStatus, 60000);
+})();
+</script>
+</body>
+</html>

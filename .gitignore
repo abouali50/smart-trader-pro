@@ -12,3 +12,6 @@ wide.json
 wide_state.json
 radar.json
 alpha.json
+tracking.json
+app.db
+app.db-*

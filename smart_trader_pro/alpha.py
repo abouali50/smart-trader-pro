@@ -75,6 +75,8 @@ class AlphaData:
                 "mcap": _num(t.get("marketCap")),
                 "holders": int(_num(t.get("holders"))),
                 "listed_spot": bool(t.get("listingCex")),
+                "contract": str(t.get("contractAddress") or ""),
+                "chain_id": str(t.get("chainId") or ""),
             })
         picked.sort(key=lambda t: t["volume"], reverse=True)
         picked = picked[:count]
