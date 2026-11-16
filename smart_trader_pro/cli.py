@@ -43,6 +43,7 @@ DEFAULTS = {
     "pressure": True,                 # pre-explosion : prevenir avant la cassure
     "pressure_strategy": {},
     "pressure_max_alerts": 3,         # par passage et par source
+    "pressure_telegram": False,       # au test, ces alertes ont perdu : page seule par defaut
     "alpha": True,                    # jetons de la rubrique Binance Alpha
     "alpha_count": 120,
     "alpha_min_volume": 200_000,      # USD sur 24 h
@@ -439,7 +440,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         if source.warning():
             text += "\n" + source.warning()
         print("\n" + text + "\n", flush=True)
-        if tg.enabled and not tg.send(text):
+        if cfg["pressure_telegram"] and tg.enabled and not tg.send(text):
             log(f"{pev.symbol} : echec de l'envoi Telegram")
         state[key] = pev.ts
         pre_sent += 1

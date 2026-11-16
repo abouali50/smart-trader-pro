@@ -520,9 +520,9 @@
       return;
     }
     var ready = rows.filter(function (r) { return r.signal; }).length;
-    $("preNote").textContent = "Prix calme, bandes serrées, acheteurs qui accumulent sous une résistance · "
-      + (ready ? ready + (ready > 1 ? " cryptos sous pression" : " crypto sous pression") : "aucune crypto sous pression pour l'instant")
-      + " · seuil " + minScore + "/100 · une zone calme peut aussi casser vers le bas";
+    $("preNote").textContent = "Liste d'observation, pas un signal d'achat : au test sur l'historique, acheter ces configurations a perdu de l'argent. "
+      + (ready ? ready + (ready > 1 ? " cryptos sous pression" : " crypto sous pression") : "Aucune crypto sous pression pour l'instant")
+      + " · seuil " + minScore + "/100";
     if (!rows.length) box.replaceChildren(el("div", "empty", "Aucune crypto à afficher."));
     else box.replaceChildren.apply(box, rows.map(function (r) { return renderRow(r, minScore, "pre"); }));
   }

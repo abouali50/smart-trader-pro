@@ -108,7 +108,8 @@ def test_scan_sends_pre_explosion_alerts_with_a_cap(monkeypatch, tmp_path):
         def get(self):
             return context.MarketContext()
 
-    cfg = dict(cli.DEFAULTS, radar_interval="1h", pressure_max_alerts=2,
+    assert cli.DEFAULTS["pressure_telegram"] is False              # page seule par defaut
+    cfg = dict(cli.DEFAULTS, radar_interval="1h", pressure_max_alerts=2, pressure_telegram=True,
                state_file=str(tmp_path / "state.json"), signals_file=str(tmp_path / "signals.json"),
                radar_file=str(tmp_path / "radar.json"))
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 2            # plafonne a 2 par passage
@@ -125,6 +126,11 @@ def test_scan_sends_pre_explosion_alerts_with_a_cap(monkeypatch, tmp_path):
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 2 and len(sent) == 4   # les suivantes
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1 and len(sent) == 5
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 0                      # delai respecte
+    quiet = dict(cfg, pressure_telegram=False, radar_file=str(tmp_path / "r3.json"),
+                 state_file=str(tmp_path / "s3.json"))
+    before = len(sent)
+    assert cli.radar_once(quiet, MarketData(), Tg(), Ctx()) == 2 and len(sent) == before   # sans message
+    assert len(json.loads((tmp_path / "r3.json").read_text())["pressure"]["rows"]) == 5
     off = dict(cfg, pressure=False, radar_file=str(tmp_path / "r2.json"), state_file=str(tmp_path / "s2.json"))
     assert cli.radar_once(off, MarketData(), Tg(), Ctx()) == 0
     assert json.loads((tmp_path / "r2.json").read_text())["pressure"]["rows"] == []

@@ -177,7 +177,11 @@ casser et deux façons d'agir : attendre la clôture au-dessus du niveau, ou
 entrer en avance avec un stop sous la zone. Trois alertes au plus par passage.
 
 Ce n'est pas une prédiction : une zone calme peut ne jamais casser, ou casser
-vers le bas. Le mesurer avant de s'y fier :
+vers le bas. Mesurée sur 40 paires en bougies de 15 minutes (août à novembre
+2026), cette approche a perdu de l'argent sur la période de validation, dans
+un marché en baisse : aucune des 24 variantes n'a été gagnante. Les alertes
+restent donc sur la page comme liste d'observation et ne partent pas sur
+Telegram, sauf si `pressure_telegram` vaut `true`. Pour refaire la mesure :
 
 ```bash
 sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode pression --count 40
@@ -300,6 +304,7 @@ une garantie.
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
 | `pressure` | `true` | active les alertes de pré-explosion |
 | `pressure_max_alerts` | 3 | alertes de pré-explosion au plus, par passage et par source |
+| `pressure_telegram` | `false` | `true` : envoie aussi les pré-explosions sur Telegram |
 | `pressure_strategy.min_score` | 75 | seuil de la pré-explosion |
 | `alpha` | `true` | active l'analyse des jetons Binance Alpha |
 | `alpha_count` | 120 | nombre maximal de jetons Alpha analysés |
