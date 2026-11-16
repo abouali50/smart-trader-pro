@@ -51,7 +51,36 @@ CREATE TABLE IF NOT EXISTS orders (
     tx TEXT UNIQUE,
     paid_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS exchange_keys (
+    user_id INTEGER NOT NULL,
+    exchange TEXT NOT NULL,
+    key_name TEXT NOT NULL,
+    secret BLOB NOT NULL,
+    created INTEGER NOT NULL,
+    PRIMARY KEY (user_id, exchange)
+);
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    product TEXT NOT NULL,
+    quote_size TEXT NOT NULL,
+    entry TEXT NOT NULL DEFAULT '',
+    base_size TEXT NOT NULL DEFAULT '',
+    stop TEXT NOT NULL,
+    target TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'en_cours',
+    buy_id TEXT NOT NULL DEFAULT '',
+    exit_id TEXT NOT NULL DEFAULT '',
+    exit_price TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL,
+    closed INTEGER
+);
 """
+TRADE_FIELDS = ("entry", "base_size", "stop", "target", "status", "buy_id", "exit_id", "exit_price",
+                "note", "closed")
 
 
 def _hash_password(password: str, salt: bytes) -> bytes:
@@ -230,6 +259,55 @@ class Store:
                 raise
             r = self.db.execute("SELECT sub_until FROM users WHERE id = ?", (o["user_id"],)).fetchone()
         return r["sub_until"]
+
+    # -- cles d'exchange (chiffrees par l'appelant) et positions -----------
+    def save_exchange_key(self, user_id: int, exchange: str, key_name: str, secret: bytes) -> None:
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO exchange_keys (user_id, exchange, key_name, secret, created) "
+                            "VALUES (?, ?, ?, ?, ?)", (user_id, exchange, key_name, secret, int(time.time())))
+
+    def exchange_key(self, user_id: int, exchange: str) -> Optional[dict]:
+        return self._row("SELECT * FROM exchange_keys WHERE user_id = ? AND exchange = ?", (user_id, exchange))
+
+    def delete_exchange_key(self, user_id: int, exchange: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM exchange_keys WHERE user_id = ? AND exchange = ?", (user_id, exchange))
+
+    def add_trade(self, user_id: int, exchange: str, symbol: str, product: str, quote_size: str,
+                  stop: str, target: str) -> int:
+        with self.lock:
+            cur = self.db.execute(
+                "INSERT INTO trades (user_id, exchange, symbol, product, quote_size, stop, target, created) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, exchange, symbol, product, quote_size, stop, target, int(time.time())))
+            return cur.lastrowid
+
+    def update_trade(self, trade_id: int, **fields) -> None:
+        keys = [k for k in fields if k in TRADE_FIELDS]
+        if not keys:
+            return
+        with self.lock:
+            self.db.execute(f"UPDATE trades SET {', '.join(k + ' = ?' for k in keys)} WHERE id = ?",
+                            [fields[k] for k in keys] + [trade_id])
+
+    def trade(self, trade_id: int) -> Optional[dict]:
+        return self._row("SELECT * FROM trades WHERE id = ?", (trade_id,))
+
+    def trades(self, user_id: int, limit: int = 20, statuses: tuple = ()) -> List[dict]:
+        sql, args = "SELECT * FROM trades WHERE user_id = ?", [user_id]
+        if statuses:
+            sql += f" AND status IN ({', '.join('?' * len(statuses))})"
+            args += list(statuses)
+        with self.lock:
+            return [dict(r) for r in self.db.execute(sql + " ORDER BY id DESC LIMIT ?", args + [int(limit)])]
+
+    def spent_since(self, user_id: int, since: int):
+        """Total engage en achats depuis `since` (les ordres en echec ne comptent pas)."""
+        from decimal import Decimal
+        with self.lock:
+            rows = self.db.execute("SELECT quote_size FROM trades WHERE user_id = ? AND created > ? "
+                                   "AND status != 'echec'", (user_id, since)).fetchall()
+        return sum((Decimal(r["quote_size"]) for r in rows), Decimal(0))
 
     # -- administration --------------------------------------------------
     def overview(self, now: Optional[int] = None) -> Dict[str, object]:

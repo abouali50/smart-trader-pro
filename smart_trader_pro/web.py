@@ -1,12 +1,13 @@
 """Application web : tableau de bord, comptes, abonnements, ecran de trading.
 
-Le serveur lit les fichiers ecrits par le scanner et ne passe aucun
-ordre. Sans objet `app`, il sert seulement la page et l'etat (lecture
-seule). Avec un objet `App`, il ajoute les comptes, les abonnements
-payes en crypto, les bougies pour le graphique et l'espace admin.
+Le serveur lit les fichiers ecrits par le scanner. Sans objet `app`, il
+sert seulement la page et l'etat (lecture seule). Avec un objet `App`,
+il ajoute les comptes, les abonnements payes en crypto, les bougies pour
+le graphique, l'espace admin et, si un `Trader` est fourni, les ordres
+sur Coinbase confirmes un par un par le titulaire du compte.
 
-Aucune cle d'exchange ni cle privee n'est stockee : pour trader, le
-client est envoye vers le DEX, ou il signe avec son propre portefeuille.
+Aucune cle privee de portefeuille n'est stockee. Les cles API Coinbase
+sont chiffrees, et refusees si elles permettent un retrait.
 
 Auteur : Aziz Mernissi
 """
@@ -71,8 +72,9 @@ class ApiError(Exception):
 class App:
     """Comptes, abonnements et graphique. `cfg` est la configuration du scanner."""
 
-    def __init__(self, cfg: dict, store, chain=None, md=None, alpha_data=None):
+    def __init__(self, cfg: dict, store, chain=None, md=None, alpha_data=None, trader=None):
         self.cfg, self.store, self.chain, self.md, self.alpha = cfg, store, chain, md, alpha_data
+        self.trader = trader
         self.hits: Dict[str, deque] = {}
         self.cache: Dict[tuple, tuple] = {}
 
@@ -124,6 +126,7 @@ class App:
                     "token": self.cfg.get("pay_token"), "decimals": decimals,
                     "address": self.cfg.get("pay_address") if self.pay_ready else ""},
             "capital": self.cfg.get("capital"), "risk_pct": self.cfg.get("risk_pct"),
+            "trading": bool(self.trader and self.trader.allowed(user)),
         }
         if user:
             out["user"] = {"email": user["email"], "admin": bool(user["is_admin"]),
@@ -248,6 +251,28 @@ class App:
             self.cache.clear()
         self.cache[key] = (time.time(), out)
         return out
+
+    def trade(self, user: dict, action: str, body: dict, ip: str) -> dict:
+        from .trading import TradeError
+        if self.trader is None:
+            raise ApiError(404, "Trading indisponible.")
+        self.limit(ip, "trade", 40, 600)
+        try:
+            if action == "status":
+                return self.trader.status(user)
+            if action == "key":
+                return self.trader.connect(user, body.get("key_name"), body.get("private_key"))
+            if action == "key/delete":
+                return self.trader.disconnect(user)
+            if action == "plan":
+                return self.trader.plan(user, body)
+            if action == "buy":
+                return self.trader.buy(user, body)
+            if action == "close":
+                return self.trader.close(user, body.get("id"))
+        except TradeError as exc:
+            raise ApiError(400, str(exc)) from None
+        raise ApiError(404, "Action inconnue.")
 
     def admin(self, user: dict) -> dict:
         decimals = int(self.cfg.get("pay_decimals", 18))
@@ -385,6 +410,11 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None,
                     if not app.access(self._user()):
                         raise ApiError(402, "Reserve aux abonnes.")
                     self._json(200, app.klines(parse_qs(url.query), self._ip()))
+                elif app and path == "/api/trade":
+                    user = self._user()
+                    if not user:
+                        raise ApiError(401, "Connectez-vous d'abord.")
+                    self._json(200, app.trade(user, "status", {}, self._ip()))
                 elif app and path == "/api/admin":
                     user = self._user()
                     if not user or not user["is_admin"]:
@@ -423,6 +453,8 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None,
                     self._json(200, app.new_order(user, body, ip))
                 elif path == "/api/orders/confirm":
                     self._json(200, app.confirm(user, body, ip))
+                elif path.startswith("/api/trade/"):
+                    self._json(200, app.trade(user, path[len("/api/trade/"):], body, ip))
                 elif path == "/api/admin/grant":
                     if not user["is_admin"]:
                         raise ApiError(403, "Reserve a l'administrateur.")

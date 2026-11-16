@@ -521,10 +521,11 @@
     lv.appendChild(actions);
     if (x.src === "alpha" && !dx)
       lv.appendChild(h("div", "note", me.dex_url ? "Ce jeton n'est pas sur BNB Chain : il ne peut pas être échangé sur Pay212 DEX." : "Le lien vers Pay212 DEX n'est pas encore configuré.")).style.margin = "10px 0 0";
-    lv.appendChild(h("div", "note", "L'app ne passe aucun ordre et ne garde aucune clé : tu signes toi-même dans ton wallet.")).style.margin = "10px 0 0";
+    lv.appendChild(h("div", "note", me.trading ? "Aucun ordre n'est passé sans ta confirmation." : "L'app ne passe aucun ordre : tu signes toi-même dans ton wallet ou sur la plateforme.")).style.margin = "10px 0 0";
     right.appendChild(lv);
 
     if (!x.locked && x.stop && x.price > x.stop) right.appendChild(calculator(x));
+    if (me.trading && !x.locked && x.stop && x.tp2 && x.price > x.stop && x.src !== "wide") right.appendChild(buyCard(x));
     var why = (x.reasons || []), miss = (x.missing || []);
     if (why.length || miss.length) {
       var wc = h("div", "card"); wc.appendChild(h("h3", "", "Pourquoi ce score"));
@@ -565,6 +566,131 @@
     }
     cap.addEventListener("input", calc); risk.addEventListener("input", calc); calc();
     return c;
+  }
+  // ---------- ordres Coinbase ----------
+  function loadTrade() {
+    return api("/api/trade").then(function (r) { state.tradeInfo = r.ok ? r.data : null; return state.tradeInfo; });
+  }
+  function buyCard(x) {
+    var c = h("div", "card"); c.appendChild(h("h3", "", "Acheter sur Coinbase"));
+    var t = state.tradeInfo;
+    if (!t) {
+      c.appendChild(h("div", "muted", "Chargement…"));
+      loadTrade().then(function () { if (state.view === "trade" && state.pick === x) render(); });
+      return c;
+    }
+    if (!t.connected) {
+      c.appendChild(h("div", "note", "Connecte ton compte Coinbase pour passer l'ordre depuis l'application.")).style.margin = "0 0 10px";
+      var cb = h("button", "btn primary", "Connecter Coinbase"); cb.type = "button"; cb.addEventListener("click", function () { go("account"); }); c.appendChild(cb);
+      return c;
+    }
+    var bal = Object.keys(t.balances || {}).map(function (q) { return usd(t.balances[q]) + " " + q; }).join(" · ");
+    c.appendChild(h("div", "note", "Disponible : " + (bal || "aucun solde en USDC, USD ou USDT") + " · limite " + t.limits.max_order + " par ordre, " + t.limits.max_day + " par 24 h.")).style.margin = "0 0 10px";
+    var st = state.buy && state.buy.sym === x.symbol ? state.buy : (state.buy = { sym: x.symbol, amount: Math.min(25, t.limits.max_order) });
+    var m = h("div", "msg " + (st.cls || ""), st.msg || "");
+    if (st.plan) {
+      var p = st.plan, f = h("div", "facts");
+      [["Paire Coinbase", p.product], ["Montant", p.amount + " " + p.quote], ["Prix actuel", p.price], ["Quantité estimée", p.quantity],
+       ["Stop", p.stop], ["Objectif", p.target], ["Perte si stop touché", "−" + usd(p.max_loss) + " " + p.quote], ["Gain à l'objectif", "+" + usd(p.gain) + " " + p.quote]].forEach(function (q) {
+        var d = h("div", "fact"); d.appendChild(h("span", "", q[0])); d.appendChild(h("b", "num", q[1])); f.appendChild(d);
+      });
+      c.appendChild(f);
+      c.appendChild(h("div", "note", "Achat au prix du marché, puis vente automatique à l'objectif ou au stop. Les frais Coinbase s'ajoutent. Écart avec le prix du signal : " + pct(p.drift_pct, true) + ".")).style.margin = "10px 0";
+      var row = h("div", "row");
+      var ok = h("button", "btn primary", "Confirmer l'achat"); ok.type = "button";
+      var no = h("button", "btn", "Annuler"); no.type = "button";
+      ok.addEventListener("click", function () {
+        ok.disabled = no.disabled = true; m.className = "msg"; m.textContent = "Envoi de l'ordre à Coinbase…";
+        api("/api/trade/buy", { symbol: x.symbol, amount: st.amount, ref: x.price, stop: x.stop, target: x.tp2, confirm: true }).then(function (r) {
+          st.plan = null;
+          if (r.ok) { st.cls = r.data.warning ? "err" : "ok"; st.msg = r.data.warning || ("Achat exécuté à " + r.data.trade.entry + ". Stop " + r.data.trade.stop + " et objectif " + r.data.trade.target + " placés sur Coinbase."); }
+          else { st.cls = "err"; st.msg = r.data.error || "Ordre refusé."; }
+          loadTrade().then(function () { if (state.view === "trade") render(); });
+        });
+      });
+      no.addEventListener("click", function () { st.plan = null; st.msg = ""; render(); });
+      row.appendChild(ok); row.appendChild(no); c.appendChild(row); c.appendChild(m);
+      return c;
+    }
+    var l = h("label", "field"); l.appendChild(h("span", "", "Montant à engager"));
+    var inp = h("input"); inp.type = "number"; inp.min = String(t.limits.min); inp.max = String(t.limits.max_order); inp.step = "any"; inp.inputMode = "decimal"; inp.value = st.amount;
+    inp.addEventListener("input", function () { st.amount = parseFloat(inp.value) || 0; });
+    l.appendChild(inp); c.appendChild(l);
+    var pb = h("button", "btn primary", "Préparer l'ordre"); pb.type = "button";
+    pb.addEventListener("click", function () {
+      pb.disabled = true; m.className = "msg"; m.textContent = "Vérification du prix sur Coinbase…";
+      api("/api/trade/plan", { symbol: x.symbol, amount: st.amount, ref: x.price, stop: x.stop, target: x.tp2 }).then(function (r) {
+        if (r.ok) { st.plan = r.data; st.msg = ""; st.cls = ""; } else { st.cls = "err"; st.msg = r.data.error || "Ordre impossible."; }
+        if (state.view === "trade" && state.pick === x) render();
+      });
+    });
+    c.appendChild(pb); c.appendChild(m);
+    c.appendChild(h("div", "note", "Rien n'est acheté avant ta confirmation à l'étape suivante.")).style.margin = "6px 0 0";
+    return c;
+  }
+  function coinbasePanel(root) {
+    var sec = h("section"); sec.appendChild(h("h2", "", "Trading sur Coinbase")); root.appendChild(sec);
+    var t = state.tradeInfo;
+    if (!t) { sec.appendChild(h("div", "card empty", "Chargement…")); loadTrade().then(function () { if (state.view === "account") render(); }); return; }
+    var c = h("div", "card"); sec.appendChild(c);
+    if (t.error) c.appendChild(h("div", "banner", t.error)).style.marginBottom = "12px";
+    if (t.connected) {
+      var f = h("div", "facts");
+      [["Clé connectée", t.key], ["Disponible", Object.keys(t.balances || {}).map(function (q) { return usd(t.balances[q]) + " " + q; }).join(" · ") || "—"],
+       ["Limite par ordre", String(t.limits.max_order)], ["Engagé sur 24 h", usd(t.spent_today || 0) + " / " + t.limits.max_day]].forEach(function (p) {
+        var d = h("div", "fact"); d.appendChild(h("span", "", p[0])); d.appendChild(h("b", "num", p[1])); f.appendChild(d);
+      });
+      c.appendChild(f);
+      var db = h("button", "btn", "Déconnecter Coinbase"); db.type = "button"; db.style.marginTop = "12px";
+      db.addEventListener("click", function () { api("/api/trade/key/delete", {}).then(function (r) { state.tradeInfo = r.ok ? r.data : null; render(); }); });
+      c.appendChild(db);
+    } else {
+      var ul = h("ul", "clean");
+      ["Sur portal.cdp.coinbase.com, crée une clé API : permissions View et Trade seulement, type de clé ECDSA.",
+       "Ne coche jamais Transfer : une clé qui peut retirer de l'argent est refusée ici.",
+       "Colle ci-dessous le nom de la clé et la clé privée. Elle est chiffrée sur le serveur et n'est plus jamais affichée."].forEach(function (s) { ul.appendChild(h("li", "", s)); });
+      c.appendChild(ul);
+      var fm = h("form"); fm.style.marginTop = "12px";
+      var l1 = h("label", "field"); l1.appendChild(h("span", "", "Nom de la clé (organizations/…/apiKeys/…)")); var kn = h("input"); kn.autocomplete = "off"; kn.spellcheck = false; kn.required = true; l1.appendChild(kn); fm.appendChild(l1);
+      var l2 = h("label", "field"); l2.appendChild(h("span", "", "Clé privée (de -----BEGIN à -----END)")); var pk = h("textarea"); pk.rows = 5; pk.required = true; pk.spellcheck = false; pk.autocomplete = "off";
+      pk.style.cssText = "width:100%;background:#0a1018;border:1px solid var(--line2);border-radius:11px;padding:11px 12px;color:inherit;font:12.5px ui-monospace,Menlo,monospace;outline:none"; l2.appendChild(pk); fm.appendChild(l2);
+      var sb = h("button", "btn primary", "Connecter Coinbase"); sb.type = "submit"; fm.appendChild(sb);
+      var m = h("div", "msg err"); fm.appendChild(m);
+      fm.addEventListener("submit", function (e) {
+        e.preventDefault(); sb.disabled = true; m.textContent = "";
+        api("/api/trade/key", { key_name: kn.value.trim(), private_key: pk.value }).then(function (r) {
+          sb.disabled = false; pk.value = "";
+          if (r.ok) { state.tradeInfo = r.data; render(); } else m.textContent = r.data.error || "Connexion impossible.";
+        });
+      });
+      c.appendChild(fm);
+    }
+    var tr = t.trades || [];
+    if (tr.length) {
+      var tb = h("div", "table"); tb.style.marginTop = "14px";
+      var head = h("div", "tr th"); ["Position", "Entrée", "État", "Stop / objectif", ""].forEach(function (cl, i) { head.appendChild(h("div", (i ? "right " : "") + (i >= 3 ? "opt" : ""), cl)); }); tb.appendChild(head);
+      var names = { ouvert: "ouverte", sans_protection: "SANS STOP", cloture: "clôturée", echec: "échec", a_verifier: "à vérifier", en_cours: "en cours" };
+      tr.forEach(function (x) {
+        var r = h("div", "tr");
+        var nm = h("div", "sym", x.symbol); nm.appendChild(h("small", "", " · " + x.quote_size + " · " + when(x.created))); r.appendChild(nm);
+        r.appendChild(h("div", "num right", x.entry || "—"));
+        var stn = h("div", "right"); stn.appendChild(h("span", "pill" + (x.status === "sans_protection" ? " hot" : (x.status === "ouvert" ? " sig" : "")), names[x.status] || x.status));
+        if (x.note) stn.appendChild(h("div", "muted", x.note)).style.fontSize = "11.5px"; r.appendChild(stn);
+        r.appendChild(h("div", "num right opt", x.stop + " / " + x.target));
+        var act = h("div", "right opt");
+        if (x.status === "ouvert" || x.status === "sans_protection") {
+          var vb = h("button", "btn small", "Vendre"); vb.type = "button";
+          vb.addEventListener("click", function () {
+            if (!window.confirm("Vendre toute la position " + x.symbol + " au prix du marché ?")) return;
+            vb.disabled = true;
+            api("/api/trade/close", { id: x.id }).then(function (res) { if (!res.ok) window.alert(res.data.error || "Vente impossible."); loadTrade().then(render); });
+          });
+          act.appendChild(vb);
+        }
+        r.appendChild(act); tb.appendChild(r);
+      });
+      sec.appendChild(tb);
+    }
   }
   function draw(cv, k, x) {
     var box = cv.parentNode, W = box.clientWidth, H = box.clientHeight, dpr = window.devicePixelRatio || 1;
@@ -788,13 +914,14 @@
     var r = h("div", "row"); r.style.marginTop = "14px";
     var pb = h("button", "btn primary", u.active ? "Prolonger" : "Voir les formules"); pb.type = "button"; pb.addEventListener("click", function () { go("plans"); }); r.appendChild(pb);
     var lo = h("button", "btn", "Se déconnecter"); lo.type = "button";
-    lo.addEventListener("click", function () { api("/api/logout", {}).then(function () { state.order = null; state.admin = null; loadMe().then(function () { loadStatus(); render(); }); }); });
+    lo.addEventListener("click", function () { api("/api/logout", {}).then(function () { state.order = null; state.admin = null; state.tradeInfo = null; state.buy = null; loadMe().then(function () { loadStatus(); render(); }); }); });
     r.appendChild(lo); c1.appendChild(r); g.appendChild(c1);
     var c2 = h("div", "card"); c2.appendChild(h("h3", "", "Installer l'application"));
     var ul = h("ul", "clean");
     ["iPhone : ouvre cette page dans Safari, touche Partager, puis « Sur l'écran d'accueil ».", "Mac : dans Chrome, menu ⋮, « Caster, enregistrer et partager », puis « Installer la page en tant qu'application »."].forEach(function (t) { ul.appendChild(h("li", "", t)); });
     c2.appendChild(ul); g.appendChild(c2);
     root.appendChild(g);
+    if (me.trading) coinbasePanel(root);
     if (u.admin) adminPanel(root);
   }
   function adminPanel(root) {

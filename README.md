@@ -301,12 +301,33 @@ par tous. Avec `true`, les visiteurs voient les cryptos et leurs scores, mais
 les niveaux (entrée, stop, objectifs), les raisons et le graphique sont
 réservés aux abonnés.
 
-**Trader.** L'application ne passe aucun ordre et ne stocke aucune clé
-d'exchange. Pour un jeton de BNB Chain dont le contrat est connu (jetons
+**Trader sur Pay212 DEX.** Pour un jeton de BNB Chain dont le contrat est connu (jetons
 Binance Alpha), le bouton « Trader sur Pay212 DEX » ouvre le DEX sur ce
 jeton : le client signe l'échange avec son propre portefeuille. L'adresse du
 DEX se règle dans `dex_url`, où `{address}` est remplacé par le contrat du
 jeton. Pour une paire Binance, le bouton ouvre la paire sur Binance.
+
+**Trader sur Coinbase.** Dans « Compte », le titulaire relie son compte
+Coinbase avec une clé API créée sur portal.cdp.coinbase.com (permissions View
+et Trade, type ECDSA). Une clé qui a la permission Transfer est refusée : une
+clé acceptée ne peut donc pas retirer d'argent. La clé privée est chiffrée
+avant d'être écrite sur le disque, avec la clé maîtresse `APP_SECRET_KEY` du
+fichier `.env` (créée par l'installation ; sans elle le trading reste coupé).
+
+Dans l'écran Trader, « Préparer l'ordre » vérifie le prix réel sur Coinbase,
+recalcule le stop et l'objectif avec les mêmes écarts que le signal, et
+affiche un récapitulatif. Rien n'est acheté avant « Confirmer l'achat ».
+L'achat se fait au prix du marché, puis une vente à deux branches (objectif
+ou stop) est placée pour la quantité achetée. Si cette protection ne peut pas
+être placée, l'application le dit clairement et la position apparaît « SANS
+STOP ». Garde-fous : montant minimal et maximal par ordre, plafond par
+24 heures, refus si le prix Coinbase s'écarte de plus de 3 % du prix du
+signal, un seul ordre à la fois par compte. Il n'y a aucun achat automatique.
+
+Par défaut seul l'administrateur peut trader ; `"trading_clients": true`
+l'ouvre aux abonnés actifs. Garder les clés de trading de clients engage ta
+responsabilité : à n'ouvrir qu'après avoir renforcé la sécurité des comptes
+et vérifié le cadre légal.
 
 Après un changement de `config.json` :
 `sudo systemctl restart smart-trader-pro-web`.
@@ -386,6 +407,10 @@ une garantie.
 | `plans` | 9 / 29 / 249 USDT | formules : libellé, durée en jours, prix |
 | `pay_address` | vide | adresse BNB Chain qui reçoit les abonnements ; vide = abonnements fermés |
 | `pay_confirmations` | 5 | confirmations exigées avant d'activer un abonnement |
+| `trading` | `true` | trading sur Coinbase depuis l'application |
+| `trading_clients` | `false` | `true` : ouvert aux abonnés actifs ; `false` : administrateur seul |
+| `trade_min`, `trade_max_order`, `trade_max_day` | 5, 100, 300 | montant minimal et maximal par ordre, plafond par 24 h et par compte |
+| `trade_max_drift_pct` | 3 | écart maximal toléré entre le prix du signal et le prix Coinbase |
 | `dex_url` | vide | adresse du DEX, avec `{address}` à la place du contrat du jeton |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `radar_strategy.market_bars` | 672 | filtre de marché : moyenne du Bitcoin sur N bougies ; 0 = sans filtre |

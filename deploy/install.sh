@@ -45,6 +45,14 @@ id "$APP_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /us
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/.env"
 
+if ! grep -q '^APP_SECRET_KEY=..*' "$APP_DIR/.env"; then
+  # Cle maitresse du chiffrement des cles API : creee une fois, jamais affichee.
+  SECRET="$(cd "$APP_DIR" && .venv/bin/python -c 'from smart_trader_pro.exchange import new_master_key; print(new_master_key())')"
+  sed -i '/^APP_SECRET_KEY=/d' "$APP_DIR/.env"
+  echo "APP_SECRET_KEY=$SECRET" >> "$APP_DIR/.env"
+  unset SECRET
+fi
+
 echo "==> Service systemd"
 sed "s#/opt/smart-trader-pro#$APP_DIR#g" "$APP_DIR/deploy/smart-trader-pro.service" > /etc/systemd/system/smart-trader-pro.service
 sed "s#/opt/smart-trader-pro#$APP_DIR#g" "$APP_DIR/deploy/smart-trader-pro-web.service" > /etc/systemd/system/smart-trader-pro-web.service

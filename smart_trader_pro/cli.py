@@ -75,6 +75,13 @@ DEFAULTS = {
     "pay_decimals": 18,
     "pay_confirmations": 5,
     "pay_rpc": [],                    # vide : noeuds publics de BNB Chain
+    # Trading en un clic sur Coinbase (cle API du titulaire, sans permission de retrait).
+    "trading": True,
+    "trading_clients": False,         # True : ouvert aussi aux abonnes ; False : administrateur seul
+    "trade_min": 5,                   # montant minimal d'un ordre
+    "trade_max_order": 100,           # montant maximal d'un ordre
+    "trade_max_day": 300,             # montant maximal engage par 24 h et par compte
+    "trade_max_drift_pct": 3,         # ecart maximal entre le prix du signal et le prix Coinbase
     "dex_url": "",                    # ex. https://dex.exemple.com/swap?outputCurrency={address}
     "strategy": {},
 }
@@ -850,11 +857,17 @@ def cmd_web(args) -> None:
     port = args.port or int(os.environ.get("DASHBOARD_PORT", "8765"))
     host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
     from .store import Store
-    app = web.App(cfg, Store(cfg["app_db"]), chain.Chain(cfg["pay_rpc"] or None),
-                  MarketData(), alpha.AlphaData(pause=0) if cfg["alpha"] else None)
+    from .exchange import Vault
+    from .trading import Trader
+    store = Store(cfg["app_db"])
+    trader = Trader(cfg, store, Vault(os.environ.get("APP_SECRET_KEY")))
+    app = web.App(cfg, store, chain.Chain(cfg["pay_rpc"] or None),
+                  MarketData(), alpha.AlphaData(pause=0) if cfg["alpha"] else None, trader)
     log(f"Application web sur {host}:{port} - abonnements "
         f"{'ouverts' if app.pay_ready else 'fermes (pay_address non renseignee)'}, "
-        f"paywall {'actif' if cfg['paywall'] else 'inactif'}.")
+        f"paywall {'actif' if cfg['paywall'] else 'inactif'}, trading "
+        f"{'actif' if trader.enabled else 'inactif'}"
+        f"{' (administrateur seul)' if trader.enabled and not cfg['trading_clients'] else ''}.")
     web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
               wide_file=cfg["wide_file"], radar_file=cfg["radar_file"],
               alpha_file=cfg["alpha_file"], tracking_file=cfg["tracking_file"], app=app)
