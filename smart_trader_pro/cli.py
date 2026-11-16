@@ -34,8 +34,8 @@ DEFAULTS = {
     "state_file": "state.json",
     "radar": True,
     "radar_interval": "15m",          # bougies du signal Binance
-    "radar_count": 250,
-    "radar_min_volume": 1_000_000,
+    "radar_count": 1000,              # plafond : toutes les paires USDT de Binance
+    "radar_min_volume": 0,            # 0 = aucune paire ecartee pour son volume
     "radar_cooldown_hours": 24,
     "radar_strategy": {},
     "radar_file": "radar.json",
@@ -273,6 +273,8 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             continue
         if len(c) < breakout.warmup(rp) + 1:
             continue
+        if len(btc) and c.ts[-1] < btc.ts[-1] - 2 * INTERVAL_MS[interval]:
+            continue                                  # paire suspendue : bougies perimees
         i = len(c) - 1
         ev = breakout.evaluate(breakout.prepare(c, rp, btc=btc), i, rp)
         if ev is None:
@@ -310,7 +312,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         })
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
-    for rank, (ev, change) in enumerate(found[:15]):
+    for rank, (ev, change) in enumerate(found[:20]):
         row = row_dict(ev, "")
         row["change_24h"] = change
         if cfg["levels"]:

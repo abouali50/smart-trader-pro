@@ -163,3 +163,32 @@ def test_radar_defaults_are_tuned_for_15_minute_candles():
     assert (p.breakout_lookback, p.rs_bars, p.late_bars) == (96, 96, 96)      # 96 x 15 min = 24 h
     custom = cli.radar_params(dict(cli.DEFAULTS, radar_strategy={"min_score": 80, "rs_bars": 48}))
     assert (custom.min_score, custom.rs_bars, custom.breakout_lookback) == (80, 48, 96)
+
+
+def test_radar_skips_suspended_pairs_and_covers_all_by_default(monkeypatch, tmp_path):
+    pump = quiet_then_breakout()
+    stale = quiet_then_breakout(symbol="DEADUSDT")
+    stale.ts = [t - 30 * 24 * HOUR for t in stale.ts]          # derniere bougie vieille d'un mois
+    series = {"PUMPUSDT": pump, "DEADUSDT": stale, "BTCUSDT": flat_btc(len(pump))}
+    asked = {}
+
+    def top(self, quote="USDT", count=20, min_quote_volume=0):
+        asked.update(count=count, min_volume=min_quote_volume)
+        return ["PUMPUSDT", "DEADUSDT"]
+
+    monkeypatch.setattr(MarketData, "klines", lambda self, sym, interval, total, now_ms=None: series[sym])
+    monkeypatch.setattr(MarketData, "top_symbols", top)
+
+    class Tg:
+        enabled = False
+
+    class Ctx:
+        def get(self):
+            return context.MarketContext()
+
+    cfg = dict(cli.DEFAULTS, radar_interval="1h", state_file=str(tmp_path / "state.json"),
+               signals_file=str(tmp_path / "signals.json"), radar_file=str(tmp_path / "radar.json"))
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1
+    radar = json.loads((tmp_path / "radar.json").read_text())
+    assert radar["scanned"] == 1 and radar["rows"][0]["symbol"] == "PUMPUSDT"
+    assert asked["min_volume"] == 0 and asked["count"] >= 1000        # toutes les paires

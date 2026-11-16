@@ -2,7 +2,7 @@
 
 Scanner de cryptomonnaies, avec trois moteurs :
 
-- **Signal Binance** : toutes les 15 minutes, analyse les paires USDT liquides
+- **Signal Binance** : toutes les 15 minutes, analyse toutes les paires USDT
   de Binance sur des bougies de 15 minutes et repère celles qui explosent,
   c'est-à-dire qui cassent le plus haut des dernières 24 heures avec un
   volume anormal et des acheteurs agressifs. C'est le signal mis en avant sur
@@ -242,8 +242,8 @@ une garantie.
 | `strategy.min_score` | 70 | plus haut = moins de signaux, plus sélectifs |
 | `radar` | `true` | active le signal Binance |
 | `radar_interval` | `"15m"` | bougies du signal Binance |
-| `radar_count` | 250 | nombre maximal de paires analysées |
-| `radar_min_volume` | 1000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit analysée |
+| `radar_count` | 1000 | nombre maximal de paires analysées (1000 = toutes) |
+| `radar_min_volume` | 0 | volume minimal sur 24 h, en USDT ; 0 = toutes les paires USDT de Binance |
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `wide` | `true` | active le balayage du marché large |
