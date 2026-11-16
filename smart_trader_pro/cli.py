@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from . import (__version__, alpha, backtest, breakout, compare, levels, pressure, strategy,
+               tracker,
                wide)
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
@@ -58,6 +59,8 @@ DEFAULTS = {
     "exchanges": True,
     "status_file": "status.json",
     "signals_file": "signals.json",
+    "tracking": True,                 # suit le resultat reel de chaque alerte
+    "tracking_file": "tracking.json",
     "strategy": {},
 }
 
@@ -92,6 +95,9 @@ def write_json(path: str, data) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False)
     os.replace(tmp, path)
+
+
+SIGNALS_KEEP = 600        # alertes conservees pour le bilan
 
 
 def load_list(path: str) -> list:
@@ -284,13 +290,13 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         state[sym] = ev.ts
         sent += 1
         new_signals.append({
-            "kind": "repli",
+            "kind": "repli", "interval": interval,
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
         })
     save_state(cfg["state_file"], state)
     if new_signals:
-        history = (new_signals + load_list(cfg["signals_file"]))[:100]
+        history = (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP]
         write_json(cfg["signals_file"], history)
     write_json(cfg["status_file"], {
         "version": __version__,
@@ -376,8 +382,16 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             confirmed[sid] = exchanges.confirmations(sym)
         if not ev.is_signal or ev.ts - state.get(key, 0) < cooldown_ms:
             continue
-        if blocked:
-            held += 1                                 # cassure vue, alerte retenue
+        if blocked:                                   # cassure vue, alerte retenue
+            hk = "held:" + key
+            if ev.ts - state.get(hk, 0) >= cooldown_ms:
+                state[hk] = ev.ts
+                held += 1
+                new_signals.append({                  # suivie quand meme, pour juger le filtre
+                    "kind": "held-" + source.kind, "interval": interval, "sid": sid,
+                    "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
+                    "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+                })
             continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"], title=source.title)
         info = source.info(sid)
@@ -402,7 +416,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         state[key] = ev.ts
         sent += 1
         new_signals.append({
-            "kind": source.kind,
+            "kind": source.kind, "interval": interval, "sid": sid,
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
         })
@@ -453,7 +467,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         state[key] = pev.ts
         pre_sent += 1
         new_signals.append({
-            "kind": "pre-" + source.kind,
+            "kind": "pre-" + source.kind, "interval": interval, "sid": sid,
             "symbol": pev.symbol, "ts": pev.ts, "price": pev.price, "score": pev.score,
             "stop": pev.stop, "tp1": pev.tp1, "tp2": pev.tp2,
         })
@@ -488,7 +502,7 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         exchanges if cfg["exchanges"] else None)
     save_state(cfg["state_file"], state)
     if new_signals:
-        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
+        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP])
     write_json(cfg["radar_file"], {
         "enabled": True,
         "updated": int(time.time() * 1000),
@@ -513,7 +527,7 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
                                                        new_signals, source=source)
     save_state(cfg["state_file"], state)
     if new_signals:
-        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
+        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP])
     write_json(cfg["alpha_file"], {
         "enabled": True,
         "available": scanned > 0 or bool(data.tokens_by_id),
@@ -527,6 +541,42 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
                      "rows": pre_rows},
     })
     return sent
+
+
+def track_once(cfg: dict, md: MarketData, alpha_data: "alpha.AlphaData" = None,
+               now_ms: int = None) -> int:
+    """Releve ce que le prix a fait apres chaque alerte. Ecrit tracking_file et renvoie
+    le nombre d'alertes cloturees pendant ce passage."""
+    signals = load_list(cfg["signals_file"])
+    now_ms = now_ms or int(time.time() * 1000)
+
+    def interval_of(sig: dict) -> str:
+        if sig.get("interval") in INTERVAL_MS:
+            return sig["interval"]
+        return cfg["interval"] if (sig.get("kind") or "repli") == "repli" else cfg["radar_interval"]
+
+    def fetch(sig: dict, interval: str, total: int):
+        if (sig.get("kind") or "").endswith("alpha"):
+            if alpha_data is None:
+                raise RuntimeError("Binance Alpha inactif")
+            sid = sig.get("sid") or next(
+                (i for i, t in alpha_data.tokens_by_id.items()
+                 if f"{t.get('symbol')}USDT" == sig["symbol"]), None)
+            if sid is None:
+                raise RuntimeError("jeton Alpha introuvable")
+            return alpha_data.klines(sid, interval, total)
+        return md.klines(sig["symbol"], interval, total)
+
+    checked, closed = tracker.update(signals, fetch, now_ms, interval_of)
+    if checked:
+        write_json(cfg["signals_file"], signals)
+    write_json(cfg["tracking_file"], {
+        "updated": now_ms, "max_bars": tracker.MAX_BARS, "fee_pct": tracker.FEE_PCT,
+        "groups": tracker.summary(signals),
+    })
+    if checked:
+        log(f"Suivi des alertes : {checked} relue(s), {closed} cloturee(s).")
+    return closed
 
 
 def engine_for(args, cfg: dict):
@@ -611,6 +661,11 @@ def cmd_watch(args) -> None:
                 wide_once(scanner, tg, cfg["wide_telegram"])
             except Exception as exc:
                 log(f"Erreur pendant le balayage large : {exc}")
+        if cfg["tracking"]:
+            try:
+                track_once(cfg, md, alpha_data)
+            except Exception as exc:
+                log(f"Erreur pendant le suivi des alertes : {exc}")
         now = time.time()
         wait = tick - (now % tick) + 30
         log(f"Prochain passage dans {int(wait // 60)} min.")
@@ -770,7 +825,7 @@ def cmd_web(args) -> None:
     log(f"Tableau de bord sur {host}:{port}.")
     web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
               wide_file=cfg["wide_file"], radar_file=cfg["radar_file"],
-              alpha_file=cfg["alpha_file"])
+              alpha_file=cfg["alpha_file"], tracking_file=cfg["tracking_file"])
 
 
 def cmd_test_telegram(args) -> None:

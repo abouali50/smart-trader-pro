@@ -207,6 +207,10 @@ def test_explosion_alert_is_held_when_bitcoin_falls(monkeypatch, tmp_path):
     radar = json.loads((tmp_path / "radar.json").read_text())
     assert radar["market"] == "down"
     assert radar["rows"][0]["signal"] is False and radar["rows"][0]["suspended"] is True
+    kept = json.loads((tmp_path / "signals.json").read_text())                     # suivie pour juger le filtre
+    assert [k["kind"] for k in kept] == ["held-radar"] and kept[0]["interval"] == "1h"
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 0
+    assert len(json.loads((tmp_path / "signals.json").read_text())) == 1           # pas de doublon
     series["BTCUSDT"] = trending_btc(len(pump), 0.2)                               # le marche repart
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1 and len(sent) == 1
     assert json.loads((tmp_path / "radar.json").read_text())["market"] == "up"

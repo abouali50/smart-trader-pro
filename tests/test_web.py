@@ -25,6 +25,22 @@ def server(tmp_path):
     srv.server_close()
 
 
+def test_api_serves_tally_and_only_recent_signals(tmp_path):
+    signals, tally = tmp_path / "signals.json", tmp_path / "tracking.json"
+    signals.write_text(json.dumps([{"symbol": f"S{i}USDT"} for i in range(web.SIGNALS_SHOWN + 25)]))
+    tally.write_text(json.dumps({"groups": {"radar": {"closed": 3}}}))
+    srv = web.make_server(str(tmp_path / "status.json"), str(signals), host="127.0.0.1", port=0,
+                          tracking_file=str(tally))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        data = json.loads(OPENER.open(f"http://127.0.0.1:{srv.server_address[1]}/api/status").read())
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert len(data["signals"]) == web.SIGNALS_SHOWN and data["signals"][0]["symbol"] == "S0USDT"
+    assert data["tracking"]["groups"]["radar"]["closed"] == 3
+
+
 def test_page_and_api(server):
     url, status, signals = server
     r = OPENER.open(url + "/")

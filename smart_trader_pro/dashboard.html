@@ -189,6 +189,10 @@
   <h2>Actualités des dernières 24 h</h2>
   <div class="table news" id="news"><div class="empty">Chargement…</div></div>
 
+  <h2>Bilan des alertes : ce qu'elles ont vraiment donné</h2>
+  <div class="note" id="tallyNote"></div>
+  <div class="table sigs" id="tally"><div class="empty">Chargement…</div></div>
+
   <h2>Derniers signaux</h2>
   <div class="table sigs" id="sigs"><div class="empty">Chargement…</div></div>
 
@@ -219,6 +223,45 @@
   }
   function pct(x, signed) {
     return (signed && x > 0 ? "+" : "") + x.toFixed(2).replace(".", ",") + " %";
+  }
+  var KINDS = { "repli": "Repli en tendance", "radar": "Explosion Binance", "alpha": "Explosion Alpha",
+    "pre-radar": "Sous pression Binance", "pre-alpha": "Sous pression Alpha",
+    "held-radar": "Cassure retenue (Bitcoin en baisse)", "held-alpha": "Cassure Alpha retenue (Bitcoin en baisse)" };
+  var KIND_ORDER = ["radar", "alpha", "held-radar", "held-alpha", "pre-radar", "pre-alpha", "repli"];
+  function rText(r) { return (r > 0 ? "+" : "") + r.toFixed(2).replace(".", ",") + " R"; }
+  function colored(text, v) {
+    var sp = el("span", "", text);
+    sp.style.color = v > 0 ? "var(--up)" : (v < 0 ? "var(--down)" : "");
+    return sp;
+  }
+  function outcomeNode(o) {
+    if (!o || o.status === "open") {
+      if (o && typeof o.pct === "number") { var w = el("span", "chg", "en cours "); w.appendChild(colored(pct(o.pct, true), o.pct)); return w; }
+      return el("span", "chg", "en cours");
+    }
+    if (o.status === "unknown" || o.status === "invalid") return el("span", "chg", "non suivi");
+    var names = { "tp2": "objectif atteint", "stop": "stop touché", "expired": "sortie au temps" };
+    var n = el("span", "", names[o.status] + " · ");
+    n.appendChild(colored(rText(o.r), o.r));
+    return n;
+  }
+  function renderTally(t) {
+    var box = $("tally"), note = $("tallyNote");
+    var g = (t && t.groups) || {};
+    var keys = KIND_ORDER.filter(function (k) { return g[k]; });
+    note.textContent = "Chaque alerte est rejouée sur les bougies qui ont suivi : entrée à l'ouverture suivante, sortie à l'objectif 2, au stop ou après "
+      + ((t && t.max_bars) || 72) + " bougies, frais déduits. R = multiple du risque pris. Il faut au moins 30 alertes terminées par ligne pour commencer à juger.";
+    if (!keys.length) { box.replaceChildren(el("div", "empty", "Aucune alerte suivie pour l'instant. Le bilan se remplit au fil des jours.")); return; }
+    box.replaceChildren.apply(box, keys.map(function (k) {
+      var x = g[k], l = el("div", "line");
+      var nm = el("div", "sym"); nm.appendChild(document.createTextNode(KINDS[k] || k)); l.appendChild(nm);
+      l.appendChild(el("div", "num", x.closed + " terminée" + (x.closed > 1 ? "s" : "") + " · " + x.open + " en cours"));
+      var wr = el("div", "num opt"); wr.textContent = x.closed ? Math.round(x.win_rate) + " % gagnantes" : "—"; l.appendChild(wr);
+      var ar = el("div", "num"); if (x.closed) { ar.appendChild(document.createTextNode("Moyenne ")); ar.appendChild(colored(rText(x.avg_r), x.avg_r)); } else ar.textContent = "—"; l.appendChild(ar);
+      var tr = el("div", "num opt"); if (x.closed) { tr.appendChild(document.createTextNode("Total ")); tr.appendChild(colored(rText(x.total_r), x.total_r)); } else tr.textContent = "—"; l.appendChild(tr);
+      l.appendChild(el("div", "num right opt", x.closed ? x.tp2 + " obj. · " + x.stop + " stop" : ""));
+      return l;
+    }));
   }
   function when(ts) {
     return new Date(ts).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -541,6 +584,7 @@
       unit: "jetons Alpha analysés", pending: "Le premier passage sur Binance Alpha n'est pas encore terminé.",
       unavailable: "Binance Alpha ne répond pas depuis ce serveur (accès refusé ou service en panne). Le reste du scanner fonctionne." });
     renderWide(data.wide);
+    renderTally(data.tracking);
     var s = data.status, sig = data.signals || [];
     var rows = $("rows"), dot = $("dot");
     if (!s) {
@@ -614,10 +658,12 @@
         var l = el("div", "line");
         var name = el("div", "sym");
         name.appendChild(document.createTextNode(x.symbol.replace(/USDT$/, "")));
-        var kinds = { "alpha": "explosion Alpha", "radar": "explosion Binance", "pre-radar": "sous pression Binance", "pre-alpha": "sous pression Alpha" };
-        name.appendChild(el("small", "", " · " + (kinds[x.kind] || "repli")));
+        name.appendChild(el("small", "", " · " + (KINDS[x.kind] || "Repli en tendance").toLowerCase()));
         l.appendChild(name);
-        l.appendChild(el("div", "num", when(x.ts)));
+        var wh = el("div", "num");
+        wh.appendChild(document.createTextNode(when(x.ts) + " · "));
+        wh.appendChild(outcomeNode(x.outcome));
+        l.appendChild(wh);
         l.appendChild(el("div", "num opt", "Entrée " + price(x.price)));
         l.appendChild(el("div", "num opt", "Stop " + price(x.stop)));
         l.appendChild(el("div", "num opt", "Obj. 2 " + price(x.tp2)));

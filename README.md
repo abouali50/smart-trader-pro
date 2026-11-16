@@ -268,6 +268,22 @@ Chaque alerte donne l'entrée, le stop (sous le dernier creux, entre 1 et 3
 ATR), deux objectifs (1,5 R et 3 R), les niveaux de Fibonacci et la taille de
 position pour ne risquer que `risk_pct` % du capital.
 
+## Le bilan des alertes : ce qu'elles ont vraiment donné
+
+Chaque alerte envoyée est suivie automatiquement. Le scanner rejoue le plan
+annoncé sur les bougies qui ont suivi, avec les règles du backtest : entrée à
+l'ouverture de la bougie suivante, sortie à l'objectif 2, au stop ou après 72
+bougies, stop prioritaire si une bougie touche les deux, frais de 0,1 % par
+ordre déduits. La page affiche, par type d'alerte, le nombre d'alertes
+terminées, la part de gagnantes et le résultat moyen en R (multiple du risque
+pris). La liste « Derniers signaux » indique le résultat de chaque alerte.
+
+Les cassures retenues par le filtre de marché sont suivies elles aussi, sur
+une ligne à part : c'est ce qui permet de voir si le filtre évite des pertes
+ou fait rater des gains. Il faut au moins une trentaine d'alertes terminées
+par ligne avant d'en tirer une conclusion. Rien n'est acheté : c'est un suivi
+sur le papier.
+
 ## Vérifier avant de faire confiance : le backtest
 
 ```bash
@@ -322,6 +338,7 @@ une garantie.
 | `alpha_count` | 120 | nombre maximal de jetons Alpha analysés |
 | `alpha_min_volume` | 200000 | volume minimal sur 24 h, en dollars |
 | `alpha_min_liquidity` | 50000 | liquidité minimale, en dollars |
+| `tracking` | `true` | suit le résultat réel de chaque alerte (bilan sur la page) |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `radar_strategy.market_bars` | 672 | filtre de marché : moyenne du Bitcoin sur N bougies ; 0 = sans filtre |
 | `wide` | `true` | active le balayage du marché large |

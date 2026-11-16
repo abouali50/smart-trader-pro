@@ -23,8 +23,11 @@ def _read_json(path: str, default):
         return default
 
 
+SIGNALS_SHOWN = 40       # la page n'affiche que les dernieres alertes
+
+
 def make_handler(status_file: str, signals_file: str, wide_file: str = None,
-                 radar_file: str = None, alpha_file: str = None):
+                 radar_file: str = None, alpha_file: str = None, tracking_file: str = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "SmartTraderPro"
         sys_version = ""
@@ -49,8 +52,11 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None,
             if path == "/":
                 self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
             elif path == "/api/status":
+                signals = _read_json(signals_file, [])
                 data = {"status": _read_json(status_file, None),
-                        "signals": _read_json(signals_file, [])}
+                        "signals": signals[:SIGNALS_SHOWN] if isinstance(signals, list) else []}
+                if tracking_file:
+                    data["tracking"] = _read_json(tracking_file, None)
                 if wide_file:
                     data["wide"] = _read_json(wide_file, None)
                 if radar_file:
@@ -72,13 +78,14 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None,
 
 def make_server(status_file: str, signals_file: str, host: str = "0.0.0.0",
                 port: int = 8765, wide_file: str = None,
-                radar_file: str = None, alpha_file: str = None) -> ThreadingHTTPServer:
+                radar_file: str = None, alpha_file: str = None,
+                tracking_file: str = None) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port), make_handler(status_file, signals_file, wide_file,
-                                                          radar_file, alpha_file))
+                                                          radar_file, alpha_file, tracking_file))
 
 
 def serve(status_file: str, signals_file: str, host: str = "0.0.0.0",
           port: int = 8765, wide_file: str = None, radar_file: str = None,
-          alpha_file: str = None) -> None:
+          alpha_file: str = None, tracking_file: str = None) -> None:
     make_server(status_file, signals_file, host, port, wide_file, radar_file,
-                alpha_file).serve_forever()
+                alpha_file, tracking_file).serve_forever()
