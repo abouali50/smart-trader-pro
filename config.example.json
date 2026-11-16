@@ -9,8 +9,9 @@
   "market_drop_block_pct": 5,
   "cooldown_hours": 12,
   "radar": true,
-  "radar_count": 150,
-  "radar_min_volume": 3000000,
+  "radar_interval": "15m",
+  "radar_count": 250,
+  "radar_min_volume": 1000000,
   "radar_cooldown_hours": 24,
   "state_file": "state.json",
   "strategy": {

@@ -10,7 +10,7 @@
   :root {
     --bg: #0c1016; --panel: #141a23; --panel2: #1a2230; --line: #263142;
     --text: #e8edf4; --muted: #8b98ab; --accent: #4cc2ff;
-    --up: #35d08a; --down: #ff6b6b; --warn: #f5b942; --flat: #8b98ab;
+    --hot: #ff8a3d; --up: #35d08a; --down: #ff6b6b; --warn: #f5b942; --flat: #8b98ab;
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
@@ -67,7 +67,18 @@
   .facts .card { background: var(--panel); }
   .facts .v { font-size: 15px; }
   .detail a { color: var(--accent); }
-  .pill.sig.radar { background: var(--accent); border-color: var(--accent); color: #04202e; }
+  h2.star { color: var(--hot); }
+  .table.starred { border-color: rgba(255, 138, 61, .45); }
+  .hero { border: 1px solid var(--hot); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px;
+          background: linear-gradient(135deg, rgba(255, 138, 61, .16), rgba(255, 138, 61, .04)); }
+  .hero .top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
+  .hero .tagline { color: var(--hot); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .hero .name { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .hero .name small { color: var(--muted); font-size: 14px; font-weight: 400; }
+  .hero .meta { color: var(--muted); font-size: 13px; }
+  .hero .levels { margin: 12px 0 0; }
+  .hero .why { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .pill.sig.radar { background: var(--hot); border-color: var(--hot); color: #2a1200; }
   .chg { font-variant-numeric: tabular-nums; font-size: 13px; }
   .pill.sus { color: var(--warn); border-color: rgba(245, 185, 66, .5); }
 
@@ -132,6 +143,15 @@
 
   <div class="banner" id="banner"><b id="bT">Chargement…</b><span id="bS"></span></div>
 
+  <div id="hero"></div>
+
+  <h2 class="star">Signal Binance : cryptos qui explosent</h2>
+  <div class="note" id="radarNote">Chargement…</div>
+  <div class="table starred">
+    <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">24 h</div><div class="right">État</div></div>
+    <div id="radar"><div class="empty">Chargement…</div></div>
+  </div>
+
   <h2>Marché large : petites cryptos qui se réveillent</h2>
   <div class="note" id="wideNote">Chargement…</div>
   <div class="table">
@@ -142,13 +162,6 @@
   <h2>Bilan des réveils signalés</h2>
   <div class="note" id="trackNote"></div>
   <div class="table sigs" id="track"><div class="empty">Chargement…</div></div>
-
-  <h2>Radar d'explosion (Binance)</h2>
-  <div class="note" id="radarNote">Chargement…</div>
-  <div class="table">
-    <div class="head"><div>Paire</div><div class="price right">Prix</div><div>Score</div><div class="trend">24 h</div><div class="right">État</div></div>
-    <div id="radar"><div class="empty">Chargement…</div></div>
-  </div>
 
   <h2>Replis en tendance haussière</h2>
   <div class="table">
@@ -243,7 +256,7 @@
     row.appendChild(t);
 
     var st = el("div", "right");
-    if (r.signal) st.appendChild(el("span", "pill sig" + (isRadar ? " radar" : ""), isRadar ? "DÉPART" : "SIGNAL"));
+    if (r.signal) st.appendChild(el("span", "pill sig" + (isRadar ? " radar" : ""), isRadar ? "EXPLOSION" : "SIGNAL"));
     else if (r.suspended) st.appendChild(el("span", "pill sus", "suspendu"));
     else st.appendChild(el("span", "pill", "attente"));
     row.appendChild(st);
@@ -410,7 +423,51 @@
     }));
   }
 
+  function renderRadar(rd) {
+    var rbox = $("radar"), hero = $("hero");
+    hero.replaceChildren();
+    if (!rd) {
+      $("radarNote").textContent = "Le premier passage du signal Binance n'est pas encore terminé.";
+      rbox.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      return;
+    }
+    var rl = rd.rows || [];
+    var hits = rl.filter(function (r) { return r.signal; });
+    var mins = INTERVAL_MIN[rd.interval] || 15;
+    $("radarNote").textContent = (rd.scanned || 0) + " paires Binance analysées toutes les " + mins + " min · analyse " + ago(rd.updated)
+      + " · " + (hits.length ? hits.length + (hits.length > 1 ? " explosions détectées" : " explosion détectée") : "aucune explosion détectée")
+      + " · seuil " + rd.min_score + "/100";
+    hits.forEach(function (r) {
+      var h = el("div", "hero");
+      var top = el("div", "top");
+      var left = el("div");
+      left.appendChild(el("div", "tagline", "Explosion Binance · bougie de " + rd.interval));
+      var nm = el("div", "name");
+      nm.appendChild(document.createTextNode(r.symbol.replace(/USDT$/, "")));
+      nm.appendChild(el("small", "", " / USDT"));
+      left.appendChild(nm);
+      top.appendChild(left);
+      var ch = r.change_24h;
+      top.appendChild(el("div", "meta", "Score " + r.score + "/100 · " + when(r.ts)
+        + ((ch === null || ch === undefined) ? "" : " · " + pct(ch, true) + " sur 24 h")));
+      h.appendChild(top);
+      var lv = el("div", "levels");
+      [["Entrée", r.price], ["Stop", r.stop], ["Objectif 1", r.tp1], ["Objectif 2", r.tp2]].forEach(function (p) {
+        var c = el("div", "card");
+        c.appendChild(el("div", "k", p[0]));
+        c.appendChild(el("div", "v num", price(p[1])));
+        lv.appendChild(c);
+      });
+      h.appendChild(lv);
+      h.appendChild(el("div", "why", (r.reasons || []).slice(0, 4).join(" · ")));
+      hero.appendChild(h);
+    });
+    if (!rl.length) rbox.replaceChildren(el("div", "empty", "Aucune paire analysée pour l'instant."));
+    else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, "radar"); }));
+  }
+
   function render(data) {
+    renderRadar(data.radar);
     renderWide(data.wide);
     var s = data.status, sig = data.signals || [];
     var rows = $("rows"), dot = $("dot");
@@ -420,8 +477,6 @@
       $("bT").textContent = "Le scanner n'a pas encore publié de résultat.";
       $("bS").textContent = "Le premier scan arrive dans la minute qui suit le démarrage du service.";
       rows.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
-      $("radar").replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
-      $("radarNote").textContent = "";
     } else {
       var limit = (INTERVAL_MIN[s.interval] || 60) * 1.3 * 60000;
       var late = Date.now() - s.updated > limit;
@@ -448,7 +503,7 @@
       if (s.blocked) {
         banner.className = "banner warn";
         $("bT").textContent = "Replis suspendus : " + s.blocked + ".";
-        $("bS").textContent = "Cela concerne les replis en tendance. Le radar d'explosion, lui, continue d'alerter.";
+        $("bS").textContent = "Cela concerne les replis en tendance. Le signal Binance, lui, continue d'alerter.";
       } else if (active) {
         banner.className = "banner go";
         $("bT").textContent = active + (active > 1 ? " signaux d'entrée actifs" : " signal d'entrée actif");
@@ -461,18 +516,6 @@
 
       if (!list.length) rows.replaceChildren(el("div", "empty", "Aucune paire analysée."));
       else rows.replaceChildren.apply(rows, list.map(function (r) { return renderRow(r, s.min_score, "repli"); }));
-
-      var rd = s.radar || {}, rbox = $("radar"), rl = rd.rows || [];
-      if (!rd.enabled) {
-        $("radarNote").textContent = "Le radar est désactivé dans les réglages.";
-        rbox.replaceChildren(el("div", "empty", "Radar désactivé."));
-      } else {
-        var starts = rl.filter(function (r) { return r.signal; }).length;
-        $("radarNote").textContent = (rd.scanned || 0) + " paires balayées · cassure d'un plus haut avec volume anormal et acheteurs agressifs · "
-          + (starts ? starts + (starts > 1 ? " départs détectés" : " départ détecté") : "aucun départ détecté") + " · seuil " + rd.min_score + "/100";
-        if (!rl.length) rbox.replaceChildren(el("div", "empty", "Aucune paire analysée par le radar pour l'instant."));
-        else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, "radar"); }));
-      }
     }
 
     var nbox = $("news"), nl = (s && s.news) || [];

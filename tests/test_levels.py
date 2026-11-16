@@ -113,12 +113,13 @@ def test_scan_adds_levels_to_rows_and_alerts(monkeypatch, tmp_path):
         def get(self):
             return context.MarketContext()
 
-    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False,
+    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False, radar_interval="1h",
                state_file=str(tmp_path / "state.json"),
                status_file=str(tmp_path / "status.json"),
-               signals_file=str(tmp_path / "signals.json"))
-    assert cli.scan_once(cfg, MarketData(), Tg(), Ctx()) == 1
+               signals_file=str(tmp_path / "signals.json"),
+               radar_file=str(tmp_path / "radar.json"))
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1
     assert "Niveaux et flux d'ordres :" in sent[0] and "VWAP ancre au dernier creux" in sent[0]
     assert "Profil de volume : POC" in sent[0] and "70 % d'achats en attente" in sent[0]
-    row = json.loads((tmp_path / "status.json").read_text())["radar"]["rows"][0]
+    row = json.loads((tmp_path / "radar.json").read_text())["rows"][0]
     assert row["levels"]["book"] == 0.7 and len(row["levels"]["lines"]) == 6

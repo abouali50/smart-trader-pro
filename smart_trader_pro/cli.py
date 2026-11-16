@@ -33,10 +33,12 @@ DEFAULTS = {
     "cooldown_hours": 12,
     "state_file": "state.json",
     "radar": True,
-    "radar_count": 150,
-    "radar_min_volume": 3_000_000,
+    "radar_interval": "15m",          # bougies du signal Binance
+    "radar_count": 250,
+    "radar_min_volume": 1_000_000,
     "radar_cooldown_hours": 24,
     "radar_strategy": {},
+    "radar_file": "radar.json",
     "wide": True,
     **wide.DEFAULTS,
     "exclude": ["MSTRBUSDT", "CRCLBUSDT", "NVDABUSDT"],   # actions tokenisees
@@ -102,6 +104,15 @@ def row_dict(ev, blocked: str) -> dict:
     }
 
 
+# Reglages du signal Binance en bougies de 15 minutes : 96 bougies = 24 heures.
+RADAR_DEFAULTS = {"breakout_lookback": 96, "rs_bars": 96, "late_bars": 96}
+RADAR_TITLE = "\U0001F6A8 EXPLOSION BINANCE"
+
+
+def radar_params(cfg: dict) -> "breakout.Params":
+    return breakout.Params.from_dict({**RADAR_DEFAULTS, **(cfg.get("radar_strategy") or {})})
+
+
 def radar_symbols(cfg: dict, md: MarketData, count: int) -> List[str]:
     """Paires balayees par le radar, sans celles de la liste `exclude`."""
     excluded = {s.upper() for s in cfg.get("exclude", [])}
@@ -159,13 +170,7 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
     symbols = resolve_symbols(cfg, md)
     news_items: list = []
     if news is not None and cfg["news"]:
-        watched = list(symbols)
-        if cfg["radar"]:
-            try:
-                watched += radar_symbols(cfg, md, cfg["radar_count"])
-            except RuntimeError:
-                pass
-        news_items = news.latest(watched)
+        news_items = news.latest(list(symbols))
         for err in news.errors:
             log(f"Actualites indisponibles - {err}")
     for sym in symbols:
@@ -207,12 +212,6 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
         })
-    radar_rows, radar_scanned = [], 0
-    if cfg["radar"]:
-        radar_rows, radar_scanned, radar_sent = scan_radar(
-            cfg, md, tg, ctx, state, new_signals, news_items,
-            exchanges if cfg["exchanges"] else None)
-        sent += radar_sent
     save_state(cfg["state_file"], state)
     if new_signals:
         history = (new_signals + load_list(cfg["signals_file"]))[:100]
@@ -235,12 +234,6 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         "rows": [dict(row_dict(ev, blocked), levels=level_info.get(ev.symbol)) for ev in
                  sorted(rows, key=lambda e: e.score, reverse=True)],
         "news": [it.as_dict() for it in news_items[:14]],
-        "radar": {
-            "enabled": bool(cfg["radar"]),
-            "scanned": radar_scanned,
-            "min_score": breakout.Params.from_dict(cfg["radar_strategy"]).min_score,
-            "rows": radar_rows,
-        },
     })
 
     rows.sort(key=lambda e: e.score, reverse=True)
@@ -260,9 +253,10 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
 
     Renvoie (lignes pour le tableau de bord, nombre de paires analysees, alertes envoyees).
     """
-    rp = breakout.Params.from_dict(cfg["radar_strategy"])
-    interval = cfg["interval"]
-    need = breakout.warmup(rp) + 30
+    rp = radar_params(cfg)
+    interval = cfg["radar_interval"]
+    day = max(1, 86_400_000 // INTERVAL_MS[interval])     # bougies par 24 heures
+    need = max(breakout.warmup(rp) + 30, day + 2)
     cooldown_ms = int(cfg["radar_cooldown_hours"] * 3_600_000)
     try:
         symbols = radar_symbols(cfg, md, cfg["radar_count"])
@@ -282,7 +276,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         ev = breakout.evaluate(breakout.prepare(c, rp, btc=btc), i, rp)
         if ev is None:
             continue
-        change = (c.close[i] / c.close[i - 24] - 1) * 100 if i >= 24 else None
+        change = (c.close[i] / c.close[i - day] - 1) * 100 if i >= day else None
         found.append((ev, change))
         series[sym] = c
         key = "radar:" + sym
@@ -291,7 +285,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         if not ev.is_signal or ev.ts - state.get(key, 0) < cooldown_ms:
             continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"],
-                             title="RADAR D'EXPLOSION")
+                             title=RADAR_TITLE)
         if cfg["levels"]:
             info = levels.analyze(c, i, md.book_imbalance(sym))
             text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in info["lines"])
@@ -325,20 +319,51 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row["exchanges"] = confirmed.get(ev.symbol)
         row["news"] = [it.as_dict() for it in for_coin(list(news_items), ev.symbol)]
         rows.append(row)
-    log(f"Radar : {len(found)} paires analysees, {sent} depart(s) detecte(s).")
+    log(f"Signal Binance ({interval}) : {len(found)} paires analysees, {sent} explosion(s) detectee(s).")
     return rows, len(found), sent
+
+
+def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProvider,
+               news: "NewsProvider" = None, exchanges: "Exchanges" = None) -> int:
+    """Un passage du signal Binance. Ecrit radar_file et renvoie le nombre d'alertes."""
+    state = load_state(cfg["state_file"])
+    ctx: MarketContext = ctx_provider.get()
+    news_items: list = []
+    if news is not None and cfg["news"]:
+        try:
+            news_items = news.latest(radar_symbols(cfg, md, cfg["radar_count"]))
+        except RuntimeError:
+            news_items = []
+    new_signals: list = []
+    rows, scanned, sent = scan_radar(cfg, md, tg, ctx, state, new_signals, news_items,
+                                     exchanges if cfg["exchanges"] else None)
+    save_state(cfg["state_file"], state)
+    if new_signals:
+        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
+    write_json(cfg["radar_file"], {
+        "enabled": True,
+        "updated": int(time.time() * 1000),
+        "interval": cfg["radar_interval"],
+        "scanned": scanned,
+        "min_score": radar_params(cfg).min_score,
+        "rows": rows,
+    })
+    return sent
 
 
 def engine_for(args, cfg: dict):
     """Moteur et parametres selon --mode."""
     if getattr(args, "mode", "repli") == "radar":
-        return breakout, breakout.Params.from_dict(cfg["radar_strategy"])
+        return breakout, radar_params(cfg)
     return strategy, Params.from_dict(cfg["strategy"])
 
 
 def cmd_scan(args) -> None:
     cfg = load_config(args.config)
-    scan_once(cfg, MarketData(), Telegram(), ContextProvider(), NewsProvider(), Exchanges())
+    md, tg, ctxp, newsp, exch = MarketData(), Telegram(), ContextProvider(), NewsProvider(), Exchanges()
+    scan_once(cfg, md, tg, ctxp, newsp, exch)
+    if cfg["radar"]:
+        radar_once(cfg, md, tg, ctxp, newsp, exch)
 
 
 def wide_once(scanner: "wide.WideScanner", tg: Telegram) -> int:
@@ -368,18 +393,26 @@ def cmd_watch(args) -> None:
     newsp, exch = NewsProvider(), Exchanges()
     scanner = wide.WideScanner(cfg) if cfg["wide"] else None
     step = INTERVAL_MS[cfg["interval"]] / 1000
-    tick = min(step, cfg["wide_interval_min"] * 60) if scanner else step
-    log(f"Smart Trader Pro {__version__} - surveillance {cfg['interval']}, "
-        f"marche large {'toutes les ' + str(int(tick // 60)) + ' min' if scanner else 'inactif'}, "
+    radar_step = INTERVAL_MS[cfg["radar_interval"]] / 1000 if cfg["radar"] else step
+    tick = min([step, radar_step] + ([cfg["wide_interval_min"] * 60] if scanner else []))
+    log(f"Smart Trader Pro {__version__} - replis {cfg['interval']}, "
+        f"signal Binance {cfg['radar_interval'] if cfg['radar'] else 'inactif'}, "
+        f"marche large {'toutes les ' + str(cfg['wide_interval_min']) + ' min' if scanner else 'inactif'}, "
         f"Telegram {'actif' if tg.enabled else 'inactif'}.")
-    last_candle = None
+    last_candle = last_radar = None
     while True:
-        candle = int((time.time() - 30) // step)      # une bougie est lue 30 s apres sa cloture
-        if candle != last_candle:
-            last_candle = candle
+        moment = time.time() - 30                     # une bougie est lue 30 s apres sa cloture
+        if cfg["radar"] and int(moment // radar_step) != last_radar:
+            last_radar = int(moment // radar_step)
+            try:
+                radar_once(cfg, md, tg, ctxp, newsp, exch)
+            except Exception as exc:                  # le service ne doit pas tomber
+                log(f"Erreur pendant le signal Binance : {exc}")
+        if int(moment // step) != last_candle:
+            last_candle = int(moment // step)
             try:
                 scan_once(cfg, md, tg, ctxp, newsp, exch)
-            except Exception as exc:                  # le service ne doit pas tomber
+            except Exception as exc:
                 log(f"Erreur pendant le scan : {exc}")
         if scanner:
             try:
@@ -398,7 +431,7 @@ def cmd_backtest(args) -> None:
     engine, p = engine_for(args, cfg)
     radar = engine is breakout
     tp_r = args.tp_r if args.tp_r else engine.DEFAULT_TP
-    interval = cfg["interval"]
+    interval = args.interval or (cfg["radar_interval"] if radar else cfg["interval"])
     if args.symbols:
         symbols = [s.upper() for s in args.symbols]
     elif radar:
@@ -445,7 +478,7 @@ def cmd_compare(args) -> None:
     md = MarketData()
     engine, base = engine_for(args, cfg)
     radar = engine is breakout
-    interval = cfg["interval"]
+    interval = args.interval or (cfg["radar_interval"] if radar else cfg["interval"])
     if args.candles < compare.needed_candles(base, engine):
         sys.exit(f"Il faut au moins {compare.needed_candles(base, engine)} bougies (--candles).")
     if args.symbols:
@@ -544,7 +577,7 @@ def cmd_web(args) -> None:
     host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
     log(f"Tableau de bord sur {host}:{port}.")
     web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
-              wide_file=cfg["wide_file"])
+              wide_file=cfg["wide_file"], radar_file=cfg["radar_file"])
 
 
 def cmd_test_telegram(args) -> None:
@@ -567,6 +600,7 @@ def main(argv=None) -> None:
     bt.add_argument("--candles", type=int, default=3000)
     bt.add_argument("--mode", choices=("repli", "radar"), default="repli")
     bt.add_argument("--count", type=int, default=0, help="nombre de paires (mode radar)")
+    bt.add_argument("--interval", choices=sorted(INTERVAL_MS), help="bougies a utiliser")
     bt.add_argument("--tp-r", type=float, default=0.0)
     bt.add_argument("--max-bars", type=int, default=72)
     bt.add_argument("--fee", type=float, default=0.1)
@@ -574,6 +608,7 @@ def main(argv=None) -> None:
     cp = sub.add_parser("compare", help="comparer des variantes, avec validation sur donnees jamais vues")
     cp.add_argument("--mode", choices=("repli", "radar"), default="repli")
     cp.add_argument("--count", type=int, default=0, help="nombre de paires (mode radar)")
+    cp.add_argument("--interval", choices=sorted(INTERVAL_MS), help="bougies a utiliser")
     cp.add_argument("--symbols", nargs="*")
     cp.add_argument("--candles", type=int, default=8000)
     cp.add_argument("--train-ratio", type=float, default=0.6)

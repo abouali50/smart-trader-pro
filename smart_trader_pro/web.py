@@ -23,7 +23,8 @@ def _read_json(path: str, default):
         return default
 
 
-def make_handler(status_file: str, signals_file: str, wide_file: str = None):
+def make_handler(status_file: str, signals_file: str, wide_file: str = None,
+                 radar_file: str = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "SmartTraderPro"
         sys_version = ""
@@ -52,6 +53,8 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None):
                         "signals": _read_json(signals_file, [])}
                 if wide_file:
                     data["wide"] = _read_json(wide_file, None)
+                if radar_file:
+                    data["radar"] = _read_json(radar_file, None)
                 self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"),
                            "application/json; charset=utf-8")
             else:
@@ -66,11 +69,12 @@ def make_handler(status_file: str, signals_file: str, wide_file: str = None):
 
 
 def make_server(status_file: str, signals_file: str, host: str = "0.0.0.0",
-                port: int = 8765, wide_file: str = None) -> ThreadingHTTPServer:
+                port: int = 8765, wide_file: str = None,
+                radar_file: str = None) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port),
-                               make_handler(status_file, signals_file, wide_file))
+                               make_handler(status_file, signals_file, wide_file, radar_file))
 
 
 def serve(status_file: str, signals_file: str, host: str = "0.0.0.0",
-          port: int = 8765, wide_file: str = None) -> None:
-    make_server(status_file, signals_file, host, port, wide_file).serve_forever()
+          port: int = 8765, wide_file: str = None, radar_file: str = None) -> None:
+    make_server(status_file, signals_file, host, port, wide_file, radar_file).serve_forever()

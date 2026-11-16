@@ -130,20 +130,22 @@ def test_scan_runs_radar_and_reports_it(monkeypatch, tmp_path):
         def get(self):
             return context.MarketContext(market_change_24h=-6.0)   # marche en chute
 
-    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False,
+    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False, radar_interval="1h",
                state_file=str(tmp_path / "state.json"),
                status_file=str(tmp_path / "status.json"),
-               signals_file=str(tmp_path / "signals.json"))
-    assert cli.scan_once(cfg, MarketData(), Tg(), Ctx()) == 1      # le radar n'est pas bloque
-    assert sent[0].startswith("RADAR D'EXPLOSION - PUMPUSDT")
-    status = json.loads((tmp_path / "status.json").read_text())
-    radar = status["radar"]
-    assert radar["scanned"] == 2 and radar["rows"][0]["symbol"] == "PUMPUSDT"
+               signals_file=str(tmp_path / "signals.json"),
+               radar_file=str(tmp_path / "radar.json"))
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1     # le signal n'est pas bloque
+    assert "EXPLOSION BINANCE - PUMPUSDT (1h)" in sent[0].splitlines()[0]
+    radar = json.loads((tmp_path / "radar.json").read_text())
+    assert radar["scanned"] == 2 and radar["interval"] == "1h" and radar["min_score"] == 70 and radar["rows"][0]["symbol"] == "PUMPUSDT"
     assert radar["rows"][0]["signal"] is True and radar["rows"][0]["change_24h"] > 3
     assert radar["rows"][1]["signal"] is False
     history = json.loads((tmp_path / "signals.json").read_text())
     assert history[0]["kind"] == "radar"
-    assert cli.scan_once(cfg, MarketData(), Tg(), Ctx()) == 0 and len(sent) == 1   # delai respecte
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 0 and len(sent) == 1  # delai respecte
+    assert cli.scan_once(cfg, MarketData(), Tg(), Ctx()) == 0                      # replis : rien
+    assert "radar" not in json.loads((tmp_path / "status.json").read_text())
 
 
 def test_klines_reads_taker_buy_volume(monkeypatch):
@@ -153,3 +155,11 @@ def test_klines_reads_taker_buy_volume(monkeypatch):
     monkeypatch.setattr(md.session, "get", lambda url, params=None, timeout=None: FakeResponse(rows))
     c = md.klines("AUSDT", "1h", total=3, now_ms=T0 + 100 * HOUR)
     assert c.taker_buy == [64.0, 64.0, 64.0] and len(c.volume) == 3
+
+
+def test_radar_defaults_are_tuned_for_15_minute_candles():
+    p = cli.radar_params(dict(cli.DEFAULTS))
+    assert cli.DEFAULTS["radar_interval"] == "15m"
+    assert (p.breakout_lookback, p.rs_bars, p.late_bars) == (96, 96, 96)      # 96 x 15 min = 24 h
+    custom = cli.radar_params(dict(cli.DEFAULTS, radar_strategy={"min_score": 80, "rs_bars": 48}))
+    assert (custom.min_score, custom.rs_bars, custom.breakout_lookback) == (80, 48, 96)

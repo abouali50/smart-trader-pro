@@ -10,3 +10,4 @@ signals.json
 *.tmp
 wide.json
 wide_state.json
+radar.json

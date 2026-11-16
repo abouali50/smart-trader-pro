@@ -133,14 +133,15 @@ def test_scan_attaches_news_and_exchange_confirmation(monkeypatch, tmp_path):
             return [{"name": "Coinbase", "ratio": 4.2, "confirmed": True},
                     {"name": "OKX", "ratio": None, "confirmed": False}]
 
-    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False,
+    cfg = dict(cli.DEFAULTS, symbols=[], btc_filter=False, radar_interval="1h",
                state_file=str(tmp_path / "state.json"),
                status_file=str(tmp_path / "status.json"),
-               signals_file=str(tmp_path / "signals.json"))
-    assert cli.scan_once(cfg, MarketData(), Tg(), Ctx(), News(), Ex()) == 1
+               signals_file=str(tmp_path / "signals.json"),
+               radar_file=str(tmp_path / "radar.json"))
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx(), News(), Ex()) == 1
     assert "Autres plateformes : volume confirme sur 1 sur 1" in sent[0]
     assert "CoinDesk : Pump token lists on a major exchange" in sent[0]
-    status = json.loads((tmp_path / "status.json").read_text())
-    assert len(status["news"]) == 2 and status["radar"]["scanned"] == 1
-    row = status["radar"]["rows"][0]
+    radar = json.loads((tmp_path / "radar.json").read_text())
+    assert radar["scanned"] == 1
+    row = radar["rows"][0]
     assert row["exchanges"][0]["ratio"] == 4.2 and row["news"][0]["source"] == "CoinDesk"

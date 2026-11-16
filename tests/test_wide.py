@@ -141,8 +141,10 @@ def test_wide_once_sends_alerts_and_api_serves_wide(tmp_path):
 
     wf = tmp_path / "wide.json"
     wf.write_text(json.dumps({"scanned": 4000, "rows": []}))
+    rf = tmp_path / "radar.json"
+    rf.write_text(json.dumps({"interval": "15m", "rows": []}))
     srv = web.make_server(str(tmp_path / "s.json"), str(tmp_path / "g.json"), host="127.0.0.1",
-                          port=0, wide_file=str(wf))
+                          port=0, wide_file=str(wf), radar_file=str(rf))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         data = json.loads(OPENER.open(f"http://127.0.0.1:{srv.server_address[1]}/api/status").read())
@@ -150,6 +152,7 @@ def test_wide_once_sends_alerts_and_api_serves_wide(tmp_path):
         srv.shutdown()
         srv.server_close()
     assert data["wide"]["scanned"] == 4000 and data["status"] is None
+    assert data["radar"]["interval"] == "15m"
 
 
 def test_paid_key_switches_endpoint_and_demo_key_is_not_used(tmp_path, monkeypatch):

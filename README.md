@@ -1,10 +1,14 @@
 # Smart Trader Pro
 
-Scanner de cryptomonnaies sur Binance Spot, avec deux moteurs :
+Scanner de cryptomonnaies, avec trois moteurs :
 
-- **Radar d'explosion** : balaie environ 150 paires USDT et repère celles qui
-  démarrent, c'est-à-dire qui cassent un plus haut avec un volume anormal et
-  des acheteurs agressifs.
+- **Signal Binance** : toutes les 15 minutes, analyse les paires USDT liquides
+  de Binance sur des bougies de 15 minutes et repère celles qui explosent,
+  c'est-à-dire qui cassent le plus haut des dernières 24 heures avec un
+  volume anormal et des acheteurs agressifs. C'est le signal mis en avant sur
+  la page et sur Telegram.
+- **Marché large** : balaie 4000 cryptos via CoinGecko et signale les petites
+  qui se réveillent.
 - **Replis en tendance** : sur les paires les plus liquides, attend un repli
   propre dans une tendance haussière.
 
@@ -115,31 +119,36 @@ Sans clé, le balayage utilise l'accès public de CoinGecko, lent et parfois
 limité. Une clé payante (`COINGECKO_PRO_API_KEY` dans `.env`) le rend rapide
 et fiable.
 
-## Le radar d'explosion
+## Le signal Binance
 
 Un mouvement violent commence presque toujours par une cassure accompagnée
-d'un volume très supérieur à l'habitude. Le radar cherche ce moment.
+d'un volume très supérieur à l'habitude. Le signal cherche ce moment sur des
+bougies de 15 minutes, pour être prévenu dans le quart d'heure.
 
 | Famille | Points | Ce qui est mesuré |
 | --- | --- | --- |
 | Volume | 30 | volume de la bougie contre sa moyenne, volume des 4 dernières bougies, OBV au plus haut |
 | Acheteurs | 10 | part du volume achetée au prix du marché (ordres agressifs) |
-| Cassure | 30 | clôture au-dessus du plus haut des 48 dernières bougies, sortie de compression de Bollinger |
+| Cassure | 30 | clôture au-dessus du plus haut des 96 dernières bougies (24 h), sortie de compression de Bollinger |
 | Momentum | 15 | RSI, MACD, ADX, clôture près du plus haut |
-| Force relative | 10 | performance face au Bitcoin sur 24 bougies |
-| Risque | 5 | le départ est encore récent (moins de 15 % déjà parcourus) |
+| Force relative | 10 | performance face au Bitcoin sur 24 h |
+| Risque | 5 | le départ est encore récent (moins de 15 % déjà parcourus en 24 h) |
 
-Un départ exige une cassure **et** un score d'au moins `radar_strategy.min_score`
-(70 par défaut). Le radar ne se bloque pas quand le marché baisse : une crypto
-peut partir seule. Il ne prédit pas l'avenir ; beaucoup de cassures échouent,
-d'où le stop fourni avec chaque alerte.
+Une alerte « EXPLOSION BINANCE » exige une cassure **et** un score d'au moins
+`radar_strategy.min_score` (70 par défaut). Elle donne l'entrée, le stop, deux
+objectifs, les niveaux (VWAP, profil de volume, flux d'ordres) et les
+actualités de la crypto. Sur la page, elle apparaît dans un encart orange en
+haut. Le signal ne se bloque pas quand le marché baisse.
 
-Tester et comparer le radar sur l'historique :
+Il ne prédit pas l'avenir : il détecte un départ, et beaucoup de cassures
+échouent. Avant de s'y fier, le mesurer sur l'historique :
 
 ```bash
-sudo -u smarttrader .venv/bin/python -m smart_trader_pro backtest --mode radar
-sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar
+sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar --count 40
 ```
+
+La commande utilise les bougies de `radar_interval` ; `--interval 1h` permet
+d'essayer une autre unité de temps.
 
 ## Niveaux et flux d'ordres
 
@@ -155,24 +164,18 @@ Pour chaque paire, la page et les alertes indiquent :
 
 Le profil de volume est estimé à partir des bougies, pas de chaque transaction.
 Le carnet d'ordres n'est lu que pour les signaux et les cinq premières lignes
-du radar. Ces mesures sont du contexte : elles n'entrent pas dans le score.
+du signal Binance. Ces mesures sont du contexte : elles n'entrent pas dans le score.
 
 ## Actualités et autres plateformes
 
 - **Actualités** : les titres des dernières 24 h de CoinDesk, Cointelegraph et
   Decrypt sont affichés sur la page et rattachés aux cryptos qu'ils citent.
   Les titres d'une crypto sont joints à ses alertes.
-- **Autres plateformes** : quand le radar détecte un départ sur Binance, il
+- **Autres plateformes** : quand le signal Binance se déclenche, le scanner
   vérifie si le volume s'emballe aussi sur Coinbase, OKX et Gate.io.
 
 Ces deux éléments sont du contexte : ils n'entrent pas dans le score, pour
 que le backtest reste comparable. Une source en panne est ignorée.
-
-Pour tester le radar sur plus de paires que les 25 premières :
-
-```bash
-sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar --count 80
-```
 
 ## Comment le score des replis est calculé
 
@@ -237,17 +240,18 @@ une garantie.
 | `market_drop_block_pct` | 5 | suspend les signaux si le marché chute de ce pourcentage en 24 h |
 | `cooldown_hours` | 12 | délai minimal entre deux alertes sur une paire |
 | `strategy.min_score` | 70 | plus haut = moins de signaux, plus sélectifs |
-| `radar` | `true` | active le radar d'explosion |
-| `radar_count` | 150 | nombre de paires balayées par le radar |
-| `radar_min_volume` | 3000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit balayée |
-| `radar_cooldown_hours` | 24 | délai minimal entre deux alertes radar sur une paire |
-| `radar_strategy.min_score` | 70 | seuil du radar |
+| `radar` | `true` | active le signal Binance |
+| `radar_interval` | `"15m"` | bougies du signal Binance |
+| `radar_count` | 250 | nombre maximal de paires analysées |
+| `radar_min_volume` | 1000000 | volume minimal sur 24 h, en USDT, pour qu'une paire soit analysée |
+| `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
+| `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `wide` | `true` | active le balayage du marché large |
 | `wide_pages` | 16 | pages de 250 cryptos (16 = 4000) |
 | `wide_interval_min` | 15 | minutes entre deux balayages |
 | `wide_min_volume` | 300000 | volume minimal sur 24 h, en dollars |
 | `wide_min_score` | 70 | seuil d'alerte du marché large |
-| `exclude` | actions tokenisées | paires que le radar ignore |
+| `exclude` | actions tokenisées | paires que le signal Binance ignore |
 | `levels` | `true` | calcule VWAP, profil de volume et flux d'ordres |
 | `news` | `true` | charge les actualités |
 | `exchanges` | `true` | vérifie le volume sur Coinbase, OKX et Gate.io |
