@@ -138,6 +138,7 @@ def test_wide_once_sends_alerts_and_api_serves_wide(tmp_path):
             return True
 
     assert cli.wide_once(Scanner(), Tg()) == 1 and sent[0].startswith("REVEIL - Gem")
+    assert cli.wide_once(Scanner(), Tg(), notify=False) == 1 and len(sent) == 1   # page seule
 
     wf = tmp_path / "wide.json"
     wf.write_text(json.dumps({"scanned": 4000, "rows": []}))

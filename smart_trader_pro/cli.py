@@ -40,6 +40,7 @@ DEFAULTS = {
     "radar_strategy": {},
     "radar_file": "radar.json",
     "wide": True,
+    "wide_telegram": True,            # False : les reveils restent sur la page, sans message
     **wide.DEFAULTS,
     "exclude": ["MSTRBUSDT", "CRCLBUSDT", "NVDABUSDT"],   # actions tokenisees
     "levels": True,
@@ -366,15 +367,15 @@ def cmd_scan(args) -> None:
         radar_once(cfg, md, tg, ctxp, newsp, exch)
 
 
-def wide_once(scanner: "wide.WideScanner", tg: Telegram) -> int:
-    """Un balayage du marche large ; envoie les nouveaux reveils. Renvoie leur nombre."""
+def wide_once(scanner: "wide.WideScanner", tg: Telegram, notify: bool = True) -> int:
+    """Un balayage du marche large ; envoie les nouveaux reveils si `notify`. Renvoie leur nombre."""
     res = scanner.sweep()
     for err in res["errors"]:
         log(f"Marche large - {err}")
     for a in res["new"]:
         text = wide.format_alert(a)
         print("\n" + text + "\n", flush=True)
-        if tg.enabled and not tg.send(text):
+        if notify and tg.enabled and not tg.send(text):
             log(f"{a['symbol']} : echec de l'envoi Telegram")
     log(f"Marche large : {res['scanned']} cryptos balayees, {res['eligible']} assez liquides, "
         f"{len(res['new'])} reveil(s)"
@@ -384,7 +385,7 @@ def wide_once(scanner: "wide.WideScanner", tg: Telegram) -> int:
 
 def cmd_wide(args) -> None:
     cfg = load_config(args.config)
-    wide_once(wide.WideScanner(cfg), Telegram())
+    wide_once(wide.WideScanner(cfg), Telegram(), cfg["wide_telegram"])
 
 
 def cmd_watch(args) -> None:
@@ -416,7 +417,7 @@ def cmd_watch(args) -> None:
                 log(f"Erreur pendant le scan : {exc}")
         if scanner:
             try:
-                wide_once(scanner, tg)
+                wide_once(scanner, tg, cfg["wide_telegram"])
             except Exception as exc:
                 log(f"Erreur pendant le balayage large : {exc}")
         now = time.time()

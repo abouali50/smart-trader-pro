@@ -247,6 +247,7 @@ une garantie.
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `wide` | `true` | active le balayage du marché large |
+| `wide_telegram` | `true` | `false` : les réveils restent sur la page, sans message Telegram |
 | `wide_pages` | 16 | pages de 250 cryptos (16 = 4000) |
 | `wide_interval_min` | 15 | minutes entre deux balayages |
 | `wide_min_volume` | 300000 | volume minimal sur 24 h, en dollars |
