@@ -117,7 +117,9 @@ def row_dict(ev, blocked: str) -> dict:
 
 
 # Reglages du signal Binance en bougies de 15 minutes : 96 bougies = 24 heures.
-RADAR_DEFAULTS = {"breakout_lookback": 96, "rs_bars": 96, "late_bars": 96}
+# market_bars 672 = 7 jours : pas d'alerte d'explosion quand le Bitcoin baisse.
+RADAR_DEFAULTS = {"breakout_lookback": 96, "rs_bars": 96, "late_bars": 96, "market_bars": 672}
+MARKET_DOWN = "Bitcoin en tendance baissiere"
 RADAR_TITLE = "\U0001F6A8 EXPLOSION BINANCE"
 PRESSURE_TITLE = "\u23F3 PRE-EXPLOSION"
 ALPHA_TITLE = "\U0001F6A8 EXPLOSION BINANCE ALPHA"
@@ -326,7 +328,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
     """Cherche les explosions sur une source (Binance Spot par defaut, ou Binance Alpha).
 
     Renvoie (lignes des explosions, nombre de paires analysees, alertes envoyees,
-    lignes des cryptos sous pression).
+    lignes des cryptos sous pression, etat du marche "up" / "down" / None).
     """
     source = source or SpotSource(cfg, md)
     rp = radar_params(cfg)
@@ -336,10 +338,13 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
     cooldown_ms = int(cfg["radar_cooldown_hours"] * 3_600_000)
     try:
         ids = source.ids()
-        btc = md.klines("BTCUSDT", interval, need)
+        btc = md.klines("BTCUSDT", interval, max(need, breakout.market_need(rp)))
     except Exception as exc:
         log(f"{source.label} indisponible : {exc}")
-        return [], 0, 0, []
+        return [], 0, 0, [], None
+    market = breakout.market_now(btc, rp)
+    blocked = MARKET_DOWN if market == "down" else ""
+    held = 0
     found, sent, confirmed, series = [], 0, {}, {}
     pp = pressure.Params.from_dict(cfg["pressure_strategy"])
     pressured: list = []
@@ -371,6 +376,9 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             confirmed[sid] = exchanges.confirmations(sym)
         if not ev.is_signal or ev.ts - state.get(key, 0) < cooldown_ms:
             continue
+        if blocked:
+            held += 1                                 # cassure vue, alerte retenue
+            continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"], title=source.title)
         info = source.info(sid)
         if info:
@@ -401,7 +409,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
     for rank, (ev, change, sid) in enumerate(found[:20]):
-        row = row_dict(ev, "")
+        row = row_dict(ev, blocked)
         row["change_24h"] = change
         row["info"] = source.info(sid)
         if cfg["levels"]:
@@ -457,7 +465,10 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         pre_rows.append(row)
     log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s), "
         f"{pre_sent} pre-explosion(s).")
-    return rows, len(found), sent + pre_sent, pre_rows
+    if blocked:
+        log(f"{source.label} : alertes d'explosion suspendues ({MARKET_DOWN}), "
+            f"{held} cassure(s) retenue(s).")
+    return rows, len(found), sent + pre_sent, pre_rows, market
 
 
 def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProvider,
@@ -472,8 +483,9 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         except RuntimeError:
             news_items = []
     new_signals: list = []
-    rows, scanned, sent, pre_rows = scan_radar(cfg, md, tg, ctx, state, new_signals, news_items,
-                                               exchanges if cfg["exchanges"] else None)
+    rows, scanned, sent, pre_rows, market = scan_radar(
+        cfg, md, tg, ctx, state, new_signals, news_items,
+        exchanges if cfg["exchanges"] else None)
     save_state(cfg["state_file"], state)
     if new_signals:
         write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
@@ -482,6 +494,7 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         "updated": int(time.time() * 1000),
         "interval": cfg["radar_interval"],
         "scanned": scanned,
+        "market": market,
         "min_score": radar_params(cfg).min_score,
         "rows": rows,
         "pressure": {"min_score": pressure.Params.from_dict(cfg["pressure_strategy"]).min_score,
@@ -496,8 +509,8 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
     state = load_state(cfg["state_file"])
     new_signals: list = []
     source = AlphaSource(cfg, data)
-    rows, scanned, sent, pre_rows = scan_radar(cfg, md, tg, ctx_provider.get(), state,
-                                               new_signals, source=source)
+    rows, scanned, sent, pre_rows, market = scan_radar(cfg, md, tg, ctx_provider.get(), state,
+                                                       new_signals, source=source)
     save_state(cfg["state_file"], state)
     if new_signals:
         write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
@@ -507,6 +520,7 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
         "updated": int(time.time() * 1000),
         "interval": cfg["radar_interval"],
         "scanned": scanned,
+        "market": market,
         "min_score": radar_params(cfg).min_score,
         "rows": rows,
         "pressure": {"min_score": pressure.Params.from_dict(cfg["pressure_strategy"]).min_score,

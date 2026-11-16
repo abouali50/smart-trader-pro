@@ -24,7 +24,8 @@
     "min_score": 70
   },
   "radar_strategy": {
-    "min_score": 70
+    "min_score": 70,
+    "market_bars": 672
   },
   "wide": true,
   "wide_pages": 16,

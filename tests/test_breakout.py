@@ -101,7 +101,7 @@ def test_backtest_and_compare_with_radar_engine():
                        if (e := breakout.evaluate_fast(f, i, p)) and e.is_signal)
     assert full_signals == fast_signals >= fast.count        # le raccourci ne perd aucun signal
     results = compare.run(data, None, breakout.Params(), engine=breakout)
-    assert len(results) == 36 and all(v.engine is breakout for v in results)
+    assert len(results) == 72 and all(v.engine is breakout for v in results)
     assert "vol x" in results[0].label and "radar_strategy" in breakout.config_snippet(p)
 
 
@@ -146,6 +146,74 @@ def test_scan_runs_radar_and_reports_it(monkeypatch, tmp_path):
     assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 0 and len(sent) == 1  # delai respecte
     assert cli.scan_once(cfg, MarketData(), Tg(), Ctx()) == 0                      # replis : rien
     assert "radar" not in json.loads((tmp_path / "status.json").read_text())
+
+
+def trending_btc(n, step):
+    b = Candles("BTCUSDT", "1h")
+    for i in range(n):
+        px = 100 + step * i
+        b.append(T0 + i * HOUR, px, px + 0.1, px - 0.1, px, 500, 250)
+    return b
+
+
+def test_market_filter_follows_bitcoin_trend():
+    p = breakout.Params(market_bars=40)
+    assert breakout.market_filter(flat_btc(200), breakout.Params()) is None        # coupe par defaut
+    assert breakout.market_now(trending_btc(200, 0.5), p) == "up"
+    assert breakout.market_now(trending_btc(200, -0.3), p) == "down"
+    assert breakout.market_now(trending_btc(30, 0.5), p) is None                   # historique trop court
+    down = trending_btc(200, -0.3)
+    states = breakout.market_filter(down, p)
+    assert states[down.ts[10]] == 0 and states[down.ts[-1]] == -1
+    # Pas de regard vers le futur : l'etat a la bougie i ne change pas si on coupe la suite.
+    cut = Candles("BTCUSDT", "1h")
+    for i in range(120):
+        cut.append(down.ts[i], down.open[i], down.high[i], down.low[i], down.close[i], 500, 250)
+    assert breakout.market_states(cut, p) == breakout.market_states(down, p)[:120]
+    assert breakout.market_need(p) > 3 * 40 and "BTC+" in breakout.label(p, 3.0)
+    # Le backtest ne prend aucun trade quand le marche est baissier.
+    pump = quiet_then_breakout()
+    free = backtest.run(pump, breakout.Params(), engine=breakout)
+    held = backtest.run(pump, p, engine=breakout,
+                        market_trend={t: -1 for t in pump.ts})
+    assert held.count == 0 <= free.count
+
+
+def test_explosion_alert_is_held_when_bitcoin_falls(monkeypatch, tmp_path):
+    pump = quiet_then_breakout()
+    series = {"PUMPUSDT": pump, "BTCUSDT": trending_btc(len(pump), -0.2)}
+    monkeypatch.setattr(MarketData, "klines", lambda self, sym, interval, total, now_ms=None: series[sym])
+    monkeypatch.setattr(MarketData, "top_symbols",
+                        lambda self, quote="USDT", count=20, min_quote_volume=0: ["PUMPUSDT"])
+    sent = []
+
+    class Tg:
+        enabled = True
+
+        def send(self, text):
+            sent.append(text)
+            return True
+
+    class Ctx:
+        def get(self):
+            return context.MarketContext()
+
+    cfg = dict(cli.DEFAULTS, symbols=[], radar_interval="1h", pressure=False,
+               radar_strategy={"market_bars": 40},
+               state_file=str(tmp_path / "state.json"),
+               signals_file=str(tmp_path / "signals.json"),
+               radar_file=str(tmp_path / "radar.json"))
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 0 and sent == []      # alerte retenue
+    radar = json.loads((tmp_path / "radar.json").read_text())
+    assert radar["market"] == "down"
+    assert radar["rows"][0]["signal"] is False and radar["rows"][0]["suspended"] is True
+    series["BTCUSDT"] = trending_btc(len(pump), 0.2)                               # le marche repart
+    assert cli.radar_once(cfg, MarketData(), Tg(), Ctx()) == 1 and len(sent) == 1
+    assert json.loads((tmp_path / "radar.json").read_text())["market"] == "up"
+    off = dict(cfg, radar_strategy={"market_bars": 0}, state_file=str(tmp_path / "s2.json"))
+    series["BTCUSDT"] = trending_btc(len(pump), -0.2)
+    assert cli.radar_once(off, MarketData(), Tg(), Ctx()) == 1                     # filtre coupe
+    assert json.loads((tmp_path / "radar.json").read_text())["market"] is None
 
 
 def test_klines_reads_taker_buy_volume(monkeypatch):

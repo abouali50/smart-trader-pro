@@ -143,7 +143,19 @@ Une alerte « EXPLOSION BINANCE » exige une cassure **et** un score d'au moins
 `radar_strategy.min_score` (70 par défaut). Elle donne l'entrée, le stop, deux
 objectifs, les niveaux (VWAP, profil de volume, flux d'ordres) et les
 actualités de la crypto. Sur la page, elle apparaît dans un encart orange en
-haut. Le signal ne se bloque pas quand le marché baisse.
+haut.
+
+**Filtre de marché.** Mesuré sur 40 paires en bougies de 15 minutes (août à
+novembre 2026), ce signal était à peu près à l'équilibre tant que le marché
+tenait, puis nettement perdant pendant une baisse de 30 % : aucune des 36
+variantes n'a été gagnante sur la validation. Depuis la version 1.7, l'alerte
+ne part donc que si le Bitcoin est en tendance haussière : il clôture
+au-dessus de sa moyenne exponentielle sur `radar_strategy.market_bars` bougies
+(672 = 7 jours) et cette moyenne monte. Quand le Bitcoin baisse, la page
+affiche « Alertes suspendues » et les cassures restent visibles dans le
+tableau, sans message Telegram. Le filtre vaut aussi pour Binance Alpha.
+`"market_bars": 0` le coupe. Ce filtre a été choisi après avoir vu la période
+de test : seules les semaines à venir diront s'il aide vraiment.
 
 Il ne prédit pas l'avenir : il détecte un départ, et beaucoup de cassures
 échouent. Avant de s'y fier, le mesurer sur l'historique :
@@ -311,6 +323,7 @@ une garantie.
 | `alpha_min_volume` | 200000 | volume minimal sur 24 h, en dollars |
 | `alpha_min_liquidity` | 50000 | liquidité minimale, en dollars |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
+| `radar_strategy.market_bars` | 672 | filtre de marché : moyenne du Bitcoin sur N bougies ; 0 = sans filtre |
 | `wide` | `true` | active le balayage du marché large |
 | `wide_telegram` | `true` | `false` : les réveils restent sur la page, sans message Telegram |
 | `wide_pages` | 16 | pages de 250 cryptos (16 = 4000) |

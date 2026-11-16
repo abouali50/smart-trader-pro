@@ -66,8 +66,9 @@ def run(candles: List[Candles], btc: Optional[Candles], base,
     results: List[Variant] = []
     for params, tp_r in variants(base, engine):
         fk = engine.feature_key(params)
-        if fk not in market:
-            market[fk] = engine.market_filter(btc, params)
+        mk = (fk, getattr(params, "market_bars", 0))
+        if mk not in market:
+            market[mk] = engine.market_filter(btc, params)
         train, test = [], []
         for c in candles:
             key = (c.symbol,) + fk
@@ -75,7 +76,7 @@ def run(candles: List[Candles], btc: Optional[Candles], base,
                 feats[key] = engine.prepare(c, params, btc=btc)
             cut = split_index(c, train_ratio)
             common = dict(tp_r=tp_r, max_bars=max_bars, fee_pct=fee_pct,
-                          market_trend=market[fk], features=feats[key], engine=engine)
+                          market_trend=market[mk], features=feats[key], engine=engine)
             train.append(backtest.run(c, params, hi=cut, **common))
             test.append(backtest.run(c, params, lo=cut, **common))
         v = Variant(params, tp_r, backtest.merge(train), backtest.merge(test), engine)

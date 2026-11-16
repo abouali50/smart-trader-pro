@@ -45,6 +45,7 @@ class Params:
     late_bars: int = 24
     late_pct: float = 15.0          # deja +15 % : trop tard
     min_score: int = 70
+    market_bars: int = 0            # filtre de marche : moyenne du BTC sur N bougies (0 = sans)
     stop_lookback: int = 12
     stop_atr_buffer: float = 0.25
     stop_min_atr: float = 1.0
@@ -149,24 +150,59 @@ def feature_key(p: Params) -> tuple:
             p.squeeze_window, p.squeeze_recent, p.squeeze_pct)
 
 
-def market_filter(btc: Optional[Candles], p: Params) -> None:
-    return None                      # le radar ne se bloque pas sur la tendance du BTC
+def market_states(btc: Optional[Candles], p: Params) -> List[int]:
+    """Etat du marche a chaque bougie du BTC : 1 haussier, -1 baissier, 0 inconnu.
+
+    Haussier = le BTC cloture au-dessus de sa moyenne exponentielle sur
+    `market_bars` bougies et cette moyenne monte (sur un septieme de la periode).
+    """
+    if btc is None or p.market_bars <= 0:
+        return []
+    ema = ind.ema(btc.close, p.market_bars)
+    slope = max(1, p.market_bars // 7)
+    out = [0] * len(btc)
+    for i in range(len(btc)):
+        if i < slope or ema[i] is None or ema[i - slope] is None:
+            continue
+        out[i] = 1 if (btc.close[i] > ema[i] and ema[i] > ema[i - slope]) else -1
+    return out
+
+
+def market_filter(btc: Optional[Candles], p: Params) -> Optional[Dict[int, int]]:
+    """Etat du marche par horodatage ; -1 bloque les entrees. None = pas de filtre."""
+    states = market_states(btc, p)
+    return dict(zip(btc.ts, states)) if states else None
+
+
+def market_now(btc: Optional[Candles], p: Params) -> Optional[str]:
+    """"up", "down", ou None si le filtre est coupe ou l'historique trop court."""
+    states = market_states(btc, p)
+    if not states or states[-1] == 0:
+        return None
+    return "up" if states[-1] == 1 else "down"
+
+
+def market_need(p: Params) -> int:
+    """Bougies du BTC necessaires pour que la moyenne soit stabilisee."""
+    return p.market_bars * 3 + max(1, p.market_bars // 7) if p.market_bars > 0 else 0
 
 
 def label(p: Params, tp_r: float) -> str:
     return (f"haut {p.breakout_lookback:>2}b vol x{p.vol_mult:g} "
-            f"score {p.min_score} obj {tp_r:g}R")
+            f"score {p.min_score} obj {tp_r:g}R" + (" BTC+" if p.market_bars > 0 else ""))
 
 
 def config_snippet(p: Params) -> str:
     return (f'"radar_strategy": {{"breakout_lookback": {p.breakout_lookback}, '
-            f'"vol_mult": {p.vol_mult}, "min_score": {p.min_score}}}')
+            f'"vol_mult": {p.vol_mult}, "min_score": {p.min_score}, '
+            f'"market_bars": {p.market_bars}}}')
 
 
 GRID = {
     "breakout_lookback": (24, 48, 96),
     "vol_mult": (2.0, 3.0),
     "min_score": (60, 70, 80),
+    "market_bars": (0, 672),         # sans filtre / BTC haussier sur 7 jours (en 15 minutes)
     "tp_r": (2.0, 3.0),
 }
 

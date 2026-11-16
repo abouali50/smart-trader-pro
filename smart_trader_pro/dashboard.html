@@ -470,8 +470,12 @@
     }
     var rl = rd.rows || [];
     var hits = rl.filter(function (r) { return r.signal; });
+    var held = rl.filter(function (r) { return r.suspended; }).length;
     var mins = INTERVAL_MIN[rd.interval] || 15;
-    $(cfg.note).textContent = (rd.scanned || 0) + " " + cfg.unit + " toutes les " + mins + " min · analyse " + ago(rd.updated)
+    var market = rd.market === "down"
+      ? "Alertes suspendues : le Bitcoin est en tendance baissière" + (held ? " (" + held + (held > 1 ? " cassures retenues" : " cassure retenue") + ")" : "") + " · "
+      : (rd.market === "up" ? "Bitcoin en tendance haussière : alertes actives · " : "");
+    $(cfg.note).textContent = market + (rd.scanned || 0) + " " + cfg.unit + " toutes les " + mins + " min · analyse " + ago(rd.updated)
       + " · " + (hits.length ? hits.length + (hits.length > 1 ? " explosions détectées" : " explosion détectée") : "aucune explosion détectée")
       + " · seuil " + rd.min_score + "/100";
     hits.forEach(function (r) {
