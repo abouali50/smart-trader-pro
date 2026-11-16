@@ -12,6 +12,10 @@
   "radar_interval": "15m",
   "radar_count": 1000,
   "radar_min_volume": 0,
+  "alpha": true,
+  "alpha_count": 120,
+  "alpha_min_volume": 200000,
+  "alpha_min_liquidity": 50000,
   "radar_cooldown_hours": 24,
   "state_file": "state.json",
   "strategy": {

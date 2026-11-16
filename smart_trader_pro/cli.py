@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import __version__, backtest, breakout, compare, levels, strategy, wide
+from . import __version__, alpha, backtest, breakout, compare, levels, strategy, wide
 from .context import ContextProvider, MarketContext
 from .data import INTERVAL_MS, MarketData
 from .exchanges import Exchanges, summary_lines
@@ -39,6 +39,11 @@ DEFAULTS = {
     "radar_cooldown_hours": 24,
     "radar_strategy": {},
     "radar_file": "radar.json",
+    "alpha": True,                    # jetons de la rubrique Binance Alpha
+    "alpha_count": 120,
+    "alpha_min_volume": 200_000,      # USD sur 24 h
+    "alpha_min_liquidity": 50_000,
+    "alpha_file": "alpha.json",
     "wide": True,
     "wide_telegram": True,            # False : les reveils restent sur la page, sans message
     **wide.DEFAULTS,
@@ -108,6 +113,67 @@ def row_dict(ev, blocked: str) -> dict:
 # Reglages du signal Binance en bougies de 15 minutes : 96 bougies = 24 heures.
 RADAR_DEFAULTS = {"breakout_lookback": 96, "rs_bars": 96, "late_bars": 96}
 RADAR_TITLE = "\U0001F6A8 EXPLOSION BINANCE"
+ALPHA_TITLE = "\U0001F6A8 EXPLOSION BINANCE ALPHA"
+ALPHA_WARNING = ("Jeton Binance Alpha : tres volatil, liquidite faible, "
+                 "il peut perdre l'essentiel de sa valeur en quelques heures.")
+
+
+class SpotSource:
+    """Paires USDT de Binance Spot."""
+    title, prefix, kind, label = RADAR_TITLE, "radar:", "radar", "Signal Binance"
+    use_exchanges = True
+
+    def __init__(self, cfg: dict, md: MarketData):
+        self.cfg, self.md = cfg, md
+
+    def ids(self) -> List[str]:
+        return radar_symbols(self.cfg, self.md, self.cfg["radar_count"])
+
+    def klines(self, sid: str, interval: str, need: int):
+        return self.md.klines(sid, interval, need)
+
+    def book(self, sid: str):
+        return self.md.book_imbalance(sid)
+
+    def info(self, sid: str) -> List[str]:
+        return []
+
+    def change_24h(self, sid: str):
+        return None
+
+    def warning(self) -> str:
+        return ""
+
+
+class AlphaSource:
+    """Jetons de la rubrique Binance Alpha."""
+    title, prefix, kind, label = ALPHA_TITLE, "alpha:", "alpha", "Binance Alpha"
+    use_exchanges = False
+
+    def __init__(self, cfg: dict, data: "alpha.AlphaData"):
+        self.cfg, self.data = cfg, data
+
+    def ids(self) -> List[str]:
+        return [t["id"] for t in self.data.tokens(self.cfg["alpha_min_volume"],
+                                                  self.cfg["alpha_min_liquidity"],
+                                                  self.cfg["alpha_count"])]
+
+    def klines(self, sid: str, interval: str, need: int):
+        return self.data.klines(sid, interval, need)
+
+    def book(self, sid: str):
+        return None
+
+    def info(self, sid: str) -> List[str]:
+        t = self.data.tokens_by_id.get(sid)
+        return alpha.info_lines(t) if t else []
+
+    def change_24h(self, sid: str):
+        t = self.data.tokens_by_id.get(sid)
+        return t["change_24h"] if t else None
+
+    def warning(self) -> str:
+        return ALPHA_WARNING
 
 
 def radar_params(cfg: dict) -> "breakout.Params":
@@ -249,27 +315,28 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
 
 def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
                state: Dict[str, int], new_signals: list, news_items: list = (),
-               exchanges: "Exchanges" = None):
-    """Radar d'explosion : balaie un grand nombre de paires a la recherche d'un depart.
+               exchanges: "Exchanges" = None, source=None):
+    """Cherche les explosions sur une source (Binance Spot par defaut, ou Binance Alpha).
 
     Renvoie (lignes pour le tableau de bord, nombre de paires analysees, alertes envoyees).
     """
+    source = source or SpotSource(cfg, md)
     rp = radar_params(cfg)
     interval = cfg["radar_interval"]
     day = max(1, 86_400_000 // INTERVAL_MS[interval])     # bougies par 24 heures
     need = max(breakout.warmup(rp) + 30, day + 2)
     cooldown_ms = int(cfg["radar_cooldown_hours"] * 3_600_000)
     try:
-        symbols = radar_symbols(cfg, md, cfg["radar_count"])
+        ids = source.ids()
         btc = md.klines("BTCUSDT", interval, need)
-    except RuntimeError as exc:
-        log(f"Radar indisponible : {exc}")
+    except Exception as exc:
+        log(f"{source.label} indisponible : {exc}")
         return [], 0, 0
     found, sent, confirmed, series = [], 0, {}, {}
-    for sym in symbols:
+    for sid in ids:
         try:
-            c = md.klines(sym, interval, need)
-        except RuntimeError:
+            c = source.klines(sid, interval, need)
+        except Exception:
             continue
         if len(c) < breakout.warmup(rp) + 1:
             continue
@@ -279,50 +346,58 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         ev = breakout.evaluate(breakout.prepare(c, rp, btc=btc), i, rp)
         if ev is None:
             continue
-        change = (c.close[i] / c.close[i - day] - 1) * 100 if i >= day else None
-        found.append((ev, change))
-        series[sym] = c
-        key = "radar:" + sym
-        if ev.is_signal and exchanges is not None:
-            confirmed[sym] = exchanges.confirmations(sym)
+        sym = ev.symbol
+        change = source.change_24h(sid)
+        if change is None:
+            change = (c.close[i] / c.close[i - day] - 1) * 100 if i >= day else None
+        found.append((ev, change, sid))
+        series[sid] = c
+        key = source.prefix + sid
+        if ev.is_signal and exchanges is not None and source.use_exchanges:
+            confirmed[sid] = exchanges.confirmations(sym)
         if not ev.is_signal or ev.ts - state.get(key, 0) < cooldown_ms:
             continue
-        text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"],
-                             title=RADAR_TITLE)
+        text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"], title=source.title)
+        info = source.info(sid)
+        if info:
+            text += "\n\nLe jeton :\n" + "\n".join(f"  {l}" for l in info)
         if cfg["levels"]:
-            info = levels.analyze(c, i, md.book_imbalance(sym))
-            text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in info["lines"])
-        if sym in confirmed:
-            text += "\n\n" + "\n".join(summary_lines(confirmed[sym]))
+            lv = levels.analyze(c, i, source.book(sid))
+            text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in lv["lines"])
+        if sid in confirmed:
+            text += "\n\n" + "\n".join(summary_lines(confirmed[sid]))
         extra = ctx.lines(sym)
         if extra:
             text += "\n\nContexte :\n" + "\n".join(f"  {l}" for l in extra)
         nl = news_lines(news_items, sym)
         if nl:
             text += "\n\n" + "\n".join(nl)
+        if source.warning():
+            text += "\n\n" + source.warning()
         print("\n" + text + "\n", flush=True)
         if tg.enabled and not tg.send(text):
             log(f"{sym} : echec de l'envoi Telegram")
         state[key] = ev.ts
         sent += 1
         new_signals.append({
-            "kind": "radar",
+            "kind": source.kind,
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
         })
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
-    for rank, (ev, change) in enumerate(found[:20]):
+    for rank, (ev, change, sid) in enumerate(found[:20]):
         row = row_dict(ev, "")
         row["change_24h"] = change
+        row["info"] = source.info(sid)
         if cfg["levels"]:
-            cs = series[ev.symbol]
-            book = md.book_imbalance(ev.symbol) if (rank < 5 or ev.is_signal) else None
+            cs = series[sid]
+            book = source.book(sid) if (rank < 5 or ev.is_signal) else None
             row["levels"] = levels.analyze(cs, len(cs) - 1, book)
-        row["exchanges"] = confirmed.get(ev.symbol)
+        row["exchanges"] = confirmed.get(sid)
         row["news"] = [it.as_dict() for it in for_coin(list(news_items), ev.symbol)]
         rows.append(row)
-    log(f"Signal Binance ({interval}) : {len(found)} paires analysees, {sent} explosion(s) detectee(s).")
+    log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s) detectee(s).")
     return rows, len(found), sent
 
 
@@ -354,6 +429,29 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
     return sent
 
 
+def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
+               ctx_provider: ContextProvider) -> int:
+    """Un passage sur les jetons Binance Alpha. Ecrit alpha_file ; renvoie le nombre d'alertes."""
+    state = load_state(cfg["state_file"])
+    new_signals: list = []
+    source = AlphaSource(cfg, data)
+    rows, scanned, sent = scan_radar(cfg, md, tg, ctx_provider.get(), state, new_signals,
+                                     source=source)
+    save_state(cfg["state_file"], state)
+    if new_signals:
+        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:100])
+    write_json(cfg["alpha_file"], {
+        "enabled": True,
+        "available": scanned > 0 or bool(data.tokens_by_id),
+        "updated": int(time.time() * 1000),
+        "interval": cfg["radar_interval"],
+        "scanned": scanned,
+        "min_score": radar_params(cfg).min_score,
+        "rows": rows,
+    })
+    return sent
+
+
 def engine_for(args, cfg: dict):
     """Moteur et parametres selon --mode."""
     if getattr(args, "mode", "repli") == "radar":
@@ -367,6 +465,8 @@ def cmd_scan(args) -> None:
     scan_once(cfg, md, tg, ctxp, newsp, exch)
     if cfg["radar"]:
         radar_once(cfg, md, tg, ctxp, newsp, exch)
+    if cfg["alpha"]:
+        alpha_once(cfg, md, alpha.AlphaData(), tg, ctxp)
 
 
 def wide_once(scanner: "wide.WideScanner", tg: Telegram, notify: bool = True) -> int:
@@ -395,22 +495,31 @@ def cmd_watch(args) -> None:
     md, tg, ctxp = MarketData(), Telegram(), ContextProvider()
     newsp, exch = NewsProvider(), Exchanges()
     scanner = wide.WideScanner(cfg) if cfg["wide"] else None
+    alpha_data = alpha.AlphaData() if cfg["alpha"] else None
     step = INTERVAL_MS[cfg["interval"]] / 1000
-    radar_step = INTERVAL_MS[cfg["radar_interval"]] / 1000 if cfg["radar"] else step
+    radar_step = (INTERVAL_MS[cfg["radar_interval"]] / 1000
+                  if (cfg["radar"] or cfg["alpha"]) else step)
     tick = min([step, radar_step] + ([cfg["wide_interval_min"] * 60] if scanner else []))
     log(f"Smart Trader Pro {__version__} - replis {cfg['interval']}, "
         f"signal Binance {cfg['radar_interval'] if cfg['radar'] else 'inactif'}, "
+        f"Binance Alpha {'actif' if alpha_data else 'inactif'}, "
         f"marche large {'toutes les ' + str(cfg['wide_interval_min']) + ' min' if scanner else 'inactif'}, "
         f"Telegram {'actif' if tg.enabled else 'inactif'}.")
     last_candle = last_radar = None
     while True:
         moment = time.time() - 30                     # une bougie est lue 30 s apres sa cloture
-        if cfg["radar"] and int(moment // radar_step) != last_radar:
+        if (cfg["radar"] or alpha_data) and int(moment // radar_step) != last_radar:
             last_radar = int(moment // radar_step)
-            try:
-                radar_once(cfg, md, tg, ctxp, newsp, exch)
-            except Exception as exc:                  # le service ne doit pas tomber
-                log(f"Erreur pendant le signal Binance : {exc}")
+            if cfg["radar"]:
+                try:
+                    radar_once(cfg, md, tg, ctxp, newsp, exch)
+                except Exception as exc:              # le service ne doit pas tomber
+                    log(f"Erreur pendant le signal Binance : {exc}")
+            if alpha_data:
+                try:
+                    alpha_once(cfg, md, alpha_data, tg, ctxp)
+                except Exception as exc:
+                    log(f"Erreur pendant Binance Alpha : {exc}")
         if int(moment // step) != last_candle:
             last_candle = int(moment // step)
             try:
@@ -580,7 +689,8 @@ def cmd_web(args) -> None:
     host = os.environ.get("DASHBOARD_HOST") or "0.0.0.0"
     log(f"Tableau de bord sur {host}:{port}.")
     web.serve(cfg["status_file"], cfg["signals_file"], host=host, port=port,
-              wide_file=cfg["wide_file"], radar_file=cfg["radar_file"])
+              wide_file=cfg["wide_file"], radar_file=cfg["radar_file"],
+              alpha_file=cfg["alpha_file"])
 
 
 def cmd_test_telegram(args) -> None:

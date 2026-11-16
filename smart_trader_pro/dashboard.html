@@ -152,6 +152,13 @@
     <div id="radar"><div class="empty">Chargement…</div></div>
   </div>
 
+  <h2 class="star">Binance Alpha : jetons qui explosent</h2>
+  <div class="note" id="alphaNote">Chargement…</div>
+  <div class="table starred">
+    <div class="head"><div>Jeton</div><div class="price right">Prix</div><div>Score</div><div class="trend">24 h</div><div class="right">État</div></div>
+    <div id="alpha"><div class="empty">Chargement…</div></div>
+  </div>
+
   <h2>Marché large : petites cryptos qui se réveillent</h2>
   <div class="note" id="wideNote">Chargement…</div>
   <div class="table">
@@ -224,7 +231,7 @@
 
   function renderRow(r, minScore, kind) {
     var key = (kind || "repli") + ":" + r.symbol;
-    var isRadar = kind === "radar";
+    var isRadar = kind === "radar" || kind === "alpha";
     var item = el("div", "item" + (open[key] ? " open" : ""));
     var row = el("button", "row");
     row.type = "button";
@@ -295,6 +302,12 @@
     (r.reasons || []).forEach(function (x) { cols.appendChild(el("div", "y", x)); });
     (r.missing || []).forEach(function (x) { cols.appendChild(el("div", "n", x)); });
     d.appendChild(cols);
+    if (r.info && r.info.length) {
+      var inf = el("div", "extra");
+      inf.appendChild(el("b", "", "Le jeton"));
+      r.info.forEach(function (x) { inf.appendChild(el("div", "", x)); });
+      d.appendChild(inf);
+    }
     if (r.levels && r.levels.lines && r.levels.lines.length) {
       var lv2 = el("div", "extra");
       lv2.appendChild(el("b", "", "Niveaux et flux d'ordres"));
@@ -423,25 +436,29 @@
     }));
   }
 
-  function renderRadar(rd) {
-    var rbox = $("radar"), hero = $("hero");
-    hero.replaceChildren();
+  function renderExplosions(rd, cfg) {
+    var rbox = $(cfg.box), hero = $("hero");
     if (!rd) {
-      $("radarNote").textContent = "Le premier passage du signal Binance n'est pas encore terminé.";
+      $(cfg.note).textContent = cfg.pending;
       rbox.replaceChildren(el("div", "empty", "Aucune donnée pour l'instant."));
+      return;
+    }
+    if (rd.available === false) {
+      $(cfg.note).textContent = cfg.unavailable;
+      rbox.replaceChildren(el("div", "empty", "Source indisponible depuis ce serveur."));
       return;
     }
     var rl = rd.rows || [];
     var hits = rl.filter(function (r) { return r.signal; });
     var mins = INTERVAL_MIN[rd.interval] || 15;
-    $("radarNote").textContent = (rd.scanned || 0) + " paires Binance analysées toutes les " + mins + " min · analyse " + ago(rd.updated)
+    $(cfg.note).textContent = (rd.scanned || 0) + " " + cfg.unit + " toutes les " + mins + " min · analyse " + ago(rd.updated)
       + " · " + (hits.length ? hits.length + (hits.length > 1 ? " explosions détectées" : " explosion détectée") : "aucune explosion détectée")
       + " · seuil " + rd.min_score + "/100";
     hits.forEach(function (r) {
       var h = el("div", "hero");
       var top = el("div", "top");
       var left = el("div");
-      left.appendChild(el("div", "tagline", "Explosion Binance · bougie de " + rd.interval));
+      left.appendChild(el("div", "tagline", cfg.tag + " · bougie de " + rd.interval));
       var nm = el("div", "name");
       nm.appendChild(document.createTextNode(r.symbol.replace(/USDT$/, "")));
       nm.appendChild(el("small", "", " / USDT"));
@@ -463,11 +480,17 @@
       hero.appendChild(h);
     });
     if (!rl.length) rbox.replaceChildren(el("div", "empty", "Aucune paire analysée pour l'instant."));
-    else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, "radar"); }));
+    else rbox.replaceChildren.apply(rbox, rl.map(function (r) { return renderRow(r, rd.min_score, cfg.kind); }));
   }
 
   function render(data) {
-    renderRadar(data.radar);
+    $("hero").replaceChildren();
+    renderExplosions(data.radar, { box: "radar", note: "radarNote", kind: "radar", tag: "Explosion Binance",
+      unit: "paires Binance analysées", pending: "Le premier passage du signal Binance n'est pas encore terminé.",
+      unavailable: "Binance ne répond pas depuis ce serveur." });
+    renderExplosions(data.alpha, { box: "alpha", note: "alphaNote", kind: "alpha", tag: "Explosion Binance Alpha",
+      unit: "jetons Alpha analysés", pending: "Le premier passage sur Binance Alpha n'est pas encore terminé.",
+      unavailable: "Binance Alpha ne répond pas depuis ce serveur (accès refusé ou service en panne). Le reste du scanner fonctionne." });
     renderWide(data.wide);
     var s = data.status, sig = data.signals || [];
     var rows = $("rows"), dot = $("dot");
@@ -542,7 +565,7 @@
         var l = el("div", "line");
         var name = el("div", "sym");
         name.appendChild(document.createTextNode(x.symbol.replace(/USDT$/, "")));
-        name.appendChild(el("small", "", x.kind === "radar" ? " · radar" : " · repli"));
+        name.appendChild(el("small", "", x.kind === "alpha" ? " · Binance Alpha" : x.kind === "radar" ? " · Binance" : " · repli"));
         l.appendChild(name);
         l.appendChild(el("div", "num", when(x.ts)));
         l.appendChild(el("div", "num opt", "Entrée " + price(x.price)));

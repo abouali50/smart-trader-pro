@@ -1,12 +1,14 @@
 # Smart Trader Pro
 
-Scanner de cryptomonnaies, avec trois moteurs :
+Scanner de cryptomonnaies, avec quatre moteurs :
 
 - **Signal Binance** : toutes les 15 minutes, analyse toutes les paires USDT
   de Binance sur des bougies de 15 minutes et repère celles qui explosent,
   c'est-à-dire qui cassent le plus haut des dernières 24 heures avec un
   volume anormal et des acheteurs agressifs. C'est le signal mis en avant sur
   la page et sur Telegram.
+- **Binance Alpha** : applique le même détecteur d'explosion aux jetons de la
+  rubrique Alpha de Binance.
 - **Marché large** : balaie 4000 cryptos via CoinGecko et signale les petites
   qui se réveillent.
 - **Replis en tendance** : sur les paires les plus liquides, attend un repli
@@ -150,6 +152,26 @@ sudo -u smarttrader .venv/bin/python -m smart_trader_pro compare --mode radar --
 La commande utilise les bougies de `radar_interval` ; `--interval 1h` permet
 d'essayer une autre unité de temps.
 
+## Binance Alpha
+
+La rubrique Alpha de Binance regroupe des jetons jeunes, négociés avant une
+éventuelle cotation classique. Toutes les 15 minutes, le scanner lit la liste
+des jetons Alpha et leurs bougies par l'API publique de Binance Alpha, puis
+leur applique le détecteur d'explosion du signal Binance.
+
+- Seuls les jetons qui échangent au moins `alpha_min_volume` dollars par jour
+  (200 000 par défaut) avec au moins `alpha_min_liquidity` dollars de
+  liquidité (50 000) sont analysés.
+- L'alerte « EXPLOSION BINANCE ALPHA » ajoute la carte du jeton : chaîne,
+  capitalisation, liquidité, nombre de détenteurs.
+- Ces adresses sont servies par www.binance.com et peuvent être refusées
+  depuis certains pays. La page l'indique alors, et le reste du scanner
+  continue de fonctionner.
+
+Les jetons Alpha sont les plus risqués de tout ce que le scanner surveille :
+liquidité faible, chutes aussi violentes que les hausses. Le détecteur n'a
+pas été mesuré sur leur historique.
+
 ## Niveaux et flux d'ordres
 
 Pour chaque paire, la page et les alertes indiquent :
@@ -245,6 +267,10 @@ une garantie.
 | `radar_count` | 1000 | nombre maximal de paires analysées (1000 = toutes) |
 | `radar_min_volume` | 0 | volume minimal sur 24 h, en USDT ; 0 = toutes les paires USDT de Binance |
 | `radar_cooldown_hours` | 24 | délai minimal entre deux alertes sur une même paire |
+| `alpha` | `true` | active l'analyse des jetons Binance Alpha |
+| `alpha_count` | 120 | nombre maximal de jetons Alpha analysés |
+| `alpha_min_volume` | 200000 | volume minimal sur 24 h, en dollars |
+| `alpha_min_liquidity` | 50000 | liquidité minimale, en dollars |
 | `radar_strategy.min_score` | 70 | seuil du signal Binance |
 | `wide` | `true` | active le balayage du marché large |
 | `wide_telegram` | `true` | `false` : les réveils restent sur la page, sans message Telegram |
