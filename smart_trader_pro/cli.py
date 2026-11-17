@@ -9,11 +9,12 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import (__version__, alpha, backtest, breakout, chain, compare, levels, onchain, pressure, quality, strategy,
+from . import (__version__, alpha, backtest, breakout, chain, compare, levels, onchain, pressure, quality, strategy, surge,
                tracker,
                wide)
 from .context import ContextProvider, MarketContext
@@ -77,6 +78,15 @@ DEFAULTS = {
     "pay_rpc": [],                    # vide : noeuds publics de BNB Chain
     # Trading en un clic sur Coinbase (cle API du titulaire, sans permission de retrait).
     # Flux on-chain des jetons Alpha (acheteurs / vendeurs sur les DEX), avec la cle CoinGecko payante.
+    # Alerte rapide : verifie tout le marche chaque minute, sans attendre la fin de la bougie.
+    "surge": True,
+    "surge_seconds": 60,              # frequence de verification
+    "surge_window_min": 3,            # le mouvement est mesure sur ces dernieres minutes
+    "surge_min_move": 2.0,            # hausse minimale sur la fenetre, en %
+    "surge_vol_mult": 8,              # volume de la fenetre / rythme moyen des 24 h
+    "surge_min_volume": 500000,       # volume minimal sur 24 h, en USDT
+    "surge_cooldown_hours": 6,        # une seule alerte rapide par crypto sur cette duree
+    "surge_max_alerts": 2,            # alertes rapides au plus par verification
     "min_quality": "C",               # "B" : seules les alertes notees A ou B partent sur Telegram
     "onchain": True,
     "onchain_per_pass": 8,            # jetons interroges par passage : 1 credit CoinGecko chacun
@@ -124,6 +134,15 @@ def write_json(path: str, data) -> None:
 
 
 SIGNALS_KEEP = 600        # alertes conservees pour le bilan
+FILE_LOCK = threading.Lock()   # le fichier des alertes est ecrit par deux fils : scans et voie rapide
+
+
+def add_signals(cfg: dict, new_signals: list) -> list:
+    """Ajoute des alertes en tete du fichier, sans ecraser celles ecrites entre-temps."""
+    with FILE_LOCK:
+        history = (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP]
+        write_json(cfg["signals_file"], history)
+    return history
 
 
 def load_list(path: str) -> list:
@@ -176,6 +195,9 @@ class SpotSource:
     def book(self, sid: str):
         return self.md.book_imbalance(sid)
 
+    def live(self, sid: str):
+        return self.md.last_price(sid)
+
     def info(self, sid: str) -> List[str]:
         return []
 
@@ -218,6 +240,9 @@ class AlphaSource:
         return self.data.klines(sid, interval, need)
 
     def book(self, sid: str):
+        return None
+
+    def live(self, sid: str):
         return None
 
     def info(self, sid: str) -> List[str]:
@@ -344,8 +369,7 @@ def scan_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextProv
         })
     save_state(cfg["state_file"], state)
     if new_signals:
-        history = (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP]
-        write_json(cfg["signals_file"], history)
+        history = add_signals(cfg, new_signals)
     write_json(cfg["status_file"], {
         "version": __version__,
         "updated": int(time.time() * 1000),
@@ -466,7 +490,18 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"], title=source.title)
         head = text.split("\n")
-        text = "\n".join(head[:2] + quality.lines(q) + head[2:])
+        live = source.live(sid)                       # ou en est le prix au moment d'envoyer
+        now_line = []
+        if live:
+            drift = (live / ev.price - 1) * 100
+            if live >= ev.tp1:
+                now_line = [f"TROP TARD : le prix actuel ({fmt_price(live)}, {drift:+.1f} %) a deja depasse "
+                            "l'objectif 1. Ne cours pas apres."]
+            elif live <= ev.stop:
+                now_line = [f"ANNULE : le prix actuel ({fmt_price(live)}, {drift:+.1f} %) est deja sous le stop."]
+            else:
+                now_line = [f"Prix actuel : {fmt_price(live)} ({drift:+.1f} % depuis la cloture de la bougie)"]
+        text = "\n".join(head[:2] + quality.lines(q) + now_line + head[2:])
         info = source.info(sid)
         if info:
             text += "\n\nLe jeton :\n" + "\n".join(f"  {l}" for l in info)
@@ -581,7 +616,7 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
         exchanges if cfg["exchanges"] else None)
     save_state(cfg["state_file"], state)
     if new_signals:
-        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP])
+        add_signals(cfg, new_signals)
     write_json(cfg["radar_file"], {
         "enabled": True,
         "updated": int(time.time() * 1000),
@@ -616,7 +651,7 @@ def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
     if chain_data is not None and (chain_data.used or chain_data.failed):
         log(f"Flux on-chain : {chain_data.used} jeton(s) interroge(s), {chain_data.failed} echec(s) au total.")
     if new_signals:
-        write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP])
+        add_signals(cfg, new_signals)
     write_json(cfg["alpha_file"], {
         "onchain": chain_data is not None,
         "enabled": True,
@@ -659,7 +694,22 @@ def track_once(cfg: dict, md: MarketData, alpha_data: "alpha.AlphaData" = None,
 
     checked, closed = tracker.update(signals, fetch, now_ms, interval_of)
     if checked:
-        write_json(cfg["signals_file"], signals)
+        # Des alertes ont pu etre ajoutees pendant la lecture des bougies : on relit le fichier
+        # et on y reporte seulement les resultats, au lieu de l'ecraser.
+        done = {(s.get("kind"), s.get("symbol"), s.get("ts")): s for s in signals}
+        with FILE_LOCK:
+            fresh = load_list(cfg["signals_file"])
+            for s in fresh:
+                src = done.get((s.get("kind"), s.get("symbol"), s.get("ts")))
+                if src is None:
+                    continue
+                for k in ("outcome", "next_check", "failures"):
+                    if k in src:
+                        s[k] = src[k]
+                    else:
+                        s.pop(k, None)
+            write_json(cfg["signals_file"], fresh)
+        signals = fresh
     write_json(cfg["tracking_file"], {
         "updated": now_ms, "max_bars": tracker.MAX_BARS, "fee_pct": tracker.FEE_PCT,
         "groups": tracker.summary(signals),
@@ -710,6 +760,36 @@ def cmd_wide(args) -> None:
     wide_once(wide.WideScanner(cfg), Telegram(), cfg["wide_telegram"])
 
 
+def surge_once(cfg: dict, watcher: "surge.SurgeWatcher", tg: Telegram, now: float = None) -> int:
+    """Une verification de la voie rapide ; renvoie le nombre d'alertes envoyees."""
+    plans = watcher.tick(now)
+    for p in plans:
+        text = surge.format_alert(p, fmt_price)
+        print("\n" + text + "\n", flush=True)
+        if tg.enabled and not tg.send(text):
+            log(f"{p['symbol']} : echec de l'envoi Telegram")
+    if plans:
+        add_signals(cfg, [{
+            "kind": "surge", "interval": cfg["radar_interval"], "sid": p["symbol"], "symbol": p["symbol"],
+            "ts": p["ts"], "price": p["price"], "score": min(100, int(p["ratio"] * 5)),
+            "stop": p["stop"], "tp1": p["tp1"], "tp2": p["tp2"],
+        } for p in plans])
+        log(f"Voie rapide : {len(plans)} depart(s) en cours signale(s).")
+    return len(plans)
+
+
+def surge_loop(cfg: dict) -> None:
+    """Fil separe : la voie rapide ne doit pas attendre la fin d'un passage complet."""
+    watcher, tg = surge.SurgeWatcher(cfg, MarketData()), Telegram()
+    while True:
+        started = time.time()
+        try:
+            surge_once(cfg, watcher, tg)
+        except Exception as exc:                      # le fil ne doit pas mourir
+            log(f"Erreur pendant la voie rapide : {exc}")
+        time.sleep(max(5.0, float(cfg["surge_seconds"]) - (time.time() - started)))
+
+
 def cmd_watch(args) -> None:
     cfg = load_config(args.config)
     md, tg, ctxp = MarketData(), Telegram(), ContextProvider()
@@ -726,6 +806,9 @@ def cmd_watch(args) -> None:
         f"Binance Alpha {'actif' if alpha_data else 'inactif'}, "
         f"marche large {'toutes les ' + str(cfg['wide_interval_min']) + ' min' if scanner else 'inactif'}, "
         f"Telegram {'actif' if tg.enabled else 'inactif'}.")
+    if cfg["surge"]:
+        threading.Thread(target=surge_loop, args=(cfg,), daemon=True, name="voie-rapide").start()
+        log(f"Voie rapide active : verification toutes les {cfg['surge_seconds']} s.")
     last_candle = last_radar = None
     while True:
         moment = time.time() - 30                     # une bougie est lue 30 s apres sa cloture

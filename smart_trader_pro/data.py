@@ -146,6 +146,35 @@ class MarketData:
         except Exception:                   # panne, paire inconnue, format inattendu
             return None
 
+    def last_price(self, symbol: str) -> Optional[float]:
+        """Dernier prix echange, ou None si la lecture echoue."""
+        try:
+            return float(self._get("/api/v3/ticker/price", {"symbol": symbol})["price"])
+        except Exception:
+            return None
+
+    def snapshot(self, quote: str = "USDT") -> dict:
+        """Photo du marche en un appel : {paire: (dernier prix, volume 24 h en `quote`)},
+        hors stablecoins, jetons a levier et actions tokenisees."""
+        out = {}
+        for t in self._get("/api/v3/ticker/24hr"):
+            sym = t.get("symbol", "")
+            if not sym.endswith(quote):
+                continue
+            base = sym[: -len(quote)]
+            if (base in _EXCLUDED_BASES or base.endswith(_EXCLUDED_SUFFIXES)
+                    or "USD" in base or is_tokenized_stock(base)):
+                continue
+            try:
+                lo, hi = float(t.get("lowPrice", 0)), float(t.get("highPrice", 0))
+                last, qv = float(t.get("lastPrice", 0)), float(t.get("quoteVolume", 0))
+            except (TypeError, ValueError):
+                continue
+            if (0.97 < lo and hi < 1.03) or last <= 0:
+                continue
+            out[sym] = (last, qv)
+        return out
+
     def top_symbols(self, quote: str = "USDT", count: int = 20,
                     min_quote_volume: float = 20_000_000) -> List[str]:
         """Paires les plus liquides sur 24 h, hors stablecoins et jetons a levier."""

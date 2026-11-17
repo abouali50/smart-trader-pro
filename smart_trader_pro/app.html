@@ -205,10 +205,10 @@
     account: ["M12 12a4 4 0 100-8 4 4 0 000 8z", "M4 21a8 8 0 0116 0"]
   };
   var VIEWS = [["home", "Accueil"], ["signals", "Signaux"], ["trade", "Trader"], ["tally", "Bilan"], ["plans", "Abonnement"], ["account", "Compte"]];
-  var KINDS = { "repli": "Repli en tendance", "radar": "Explosion Binance", "alpha": "Explosion Alpha",
+  var KINDS = { "surge": "Départ en cours (alerte rapide)", "repli": "Repli en tendance", "radar": "Explosion Binance", "alpha": "Explosion Alpha",
     "pre-radar": "Sous pression Binance", "pre-alpha": "Sous pression Alpha",
     "held-radar": "Cassure retenue (Bitcoin en baisse)", "held-alpha": "Cassure Alpha retenue (Bitcoin en baisse)" };
-  var KIND_ORDER = ["radar", "alpha", "held-radar", "held-alpha", "pre-radar", "pre-alpha", "repli"];
+  var KIND_ORDER = ["surge", "radar", "alpha", "held-radar", "held-alpha", "pre-radar", "pre-alpha", "repli"];
 
   var state = { view: "home", data: null, me: null, tab: "radar", pick: null, interval: "15m", chart: null, order: null, authMode: "login", admin: null };
 

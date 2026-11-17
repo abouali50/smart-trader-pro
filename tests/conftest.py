@@ -42,3 +42,4 @@ def no_live_order_book(monkeypatch):
     if REAL_BOOK_IMBALANCE is None:
         REAL_BOOK_IMBALANCE = MarketData.book_imbalance
     monkeypatch.setattr(MarketData, "book_imbalance", lambda self, sym, pct=1.0: None)
+    monkeypatch.setattr(MarketData, "last_price", lambda self, sym: None)

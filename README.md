@@ -268,6 +268,29 @@ Chaque alerte donne l'entrée, le stop (sous le dernier creux, entre 1 et 3
 ATR), deux objectifs (1,5 R et 3 R), les niveaux de Fibonacci et la taille de
 position pour ne risquer que `risk_pct` % du capital.
 
+## Voie rapide : « DÉPART EN COURS »
+
+Le signal d'explosion attend la clôture d'une bougie de 15 minutes, puis le
+passage sur toutes les paires : l'alerte peut arriver un quart d'heure après
+le début du mouvement, quand une partie de la hausse est déjà faite.
+
+La voie rapide tourne dans un fil séparé. Une fois par minute, elle prend une
+photo de tout le marché Binance en un seul appel et la compare à celle prise
+trois minutes plus tôt. Elle alerte si le prix a pris au moins 2 %, si le
+volume de ces minutes vaut au moins 8 fois le rythme moyen des 24 heures, et
+si le prix est passé au-dessus du plus haut des 24 dernières heures. Le prix
+d'entrée affiché est le prix au moment de l'alerte. Si la crypto a déjà pris
+plus de 12 % sur 24 heures, aucune alerte ne part : trop tard.
+
+Contrepartie : une alerte donnée sur une bougie non terminée arrive plus tôt,
+donc avec plus de faux départs. Ces réglages n'ont pas pu être testés sur
+l'historique (il faudrait des données à la minute pour toutes les paires).
+Ces alertes ont leur propre ligne dans le bilan, « Départ en cours », qui
+dira si la vitesse paie.
+
+Les alertes d'explosion classiques indiquent maintenant le prix au moment de
+l'envoi, et « TROP TARD » si l'objectif 1 est déjà dépassé.
+
 ## Note de qualité A, B ou C
 
 Le score dit si la cassure est techniquement nette. La note de qualité
@@ -441,6 +464,10 @@ une garantie.
 | `plans` | 9 / 29 / 249 USDT | formules : libellé, durée en jours, prix |
 | `pay_address` | vide | adresse BNB Chain qui reçoit les abonnements ; vide = abonnements fermés |
 | `pay_confirmations` | 5 | confirmations exigées avant d'activer un abonnement |
+| `surge` | `true` | voie rapide « DÉPART EN COURS », vérifiée chaque minute |
+| `surge_min_move`, `surge_vol_mult` | 2.0, 8 | hausse minimale en % sur 3 minutes ; volume par rapport au rythme des 24 h |
+| `surge_min_volume` | 500000 | volume minimal sur 24 h, en USDT |
+| `surge_cooldown_hours`, `surge_max_alerts` | 6, 2 | une alerte rapide par crypto sur cette durée ; alertes au plus par vérification |
 | `min_quality` | `"C"` | `"B"` : seules les alertes notées A ou B partent sur Telegram ; `"A"` : les A seulement |
 | `onchain` | `true` | flux on-chain des jetons Alpha (demande la clé CoinGecko payante) |
 | `onchain_per_pass` | 8 | jetons interrogés par passage, un crédit CoinGecko chacun |
