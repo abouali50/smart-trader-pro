@@ -534,6 +534,15 @@
       miss.slice(0, 6).forEach(function (t) { ul.appendChild(h("li", "n", t)); });
       wc.appendChild(ul); right.appendChild(wc);
     }
+    if (x.onchain && x.onchain.lines) {
+      var oc = h("div", "card"), oh = h("h3", "", "Flux on-chain (DEX)");
+      oh.appendChild(h("span", "pill" + (x.onchain.verdict === "confirme" ? " sig" : (x.onchain.verdict === "contredit" ? " hot" : "")),
+        x.onchain.verdict === "confirme" ? "acheteurs dominants" : (x.onchain.verdict === "contredit" ? "vendeurs dominants" : "neutre")));
+      oc.appendChild(oh);
+      oc.appendChild(h("div", "note", x.onchain.label + ".")).style.margin = "0 0 6px";
+      var ol = h("ul", "clean"); x.onchain.lines.forEach(function (t) { ol.appendChild(h("li", "", t)); }); oc.appendChild(ol);
+      right.appendChild(oc);
+    }
     [["Le jeton", x.info], ["Niveaux et flux d'ordres", x.levels && x.levels.lines]].forEach(function (p) {
       if (!p[1] || !p[1].length) return;
       var c = h("div", "card"); c.appendChild(h("h3", "", p[0]));

@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import (__version__, alpha, backtest, breakout, chain, compare, levels, pressure, strategy,
+from . import (__version__, alpha, backtest, breakout, chain, compare, levels, onchain, pressure, strategy,
                tracker,
                wide)
 from .context import ContextProvider, MarketContext
@@ -76,6 +76,9 @@ DEFAULTS = {
     "pay_confirmations": 5,
     "pay_rpc": [],                    # vide : noeuds publics de BNB Chain
     # Trading en un clic sur Coinbase (cle API du titulaire, sans permission de retrait).
+    # Flux on-chain des jetons Alpha (acheteurs / vendeurs sur les DEX), avec la cle CoinGecko payante.
+    "onchain": True,
+    "onchain_per_pass": 8,            # jetons interroges par passage : 1 credit CoinGecko chacun
     "trading": True,
     "trading_clients": False,         # True : ouvert aussi aux abonnes ; False : administrateur seul
     "trade_min": 5,                   # montant minimal d'un ordre
@@ -178,6 +181,9 @@ class SpotSource:
     def token(self, sid: str):
         return None
 
+    def flow(self, sid: str):
+        return None
+
     def change_24h(self, sid: str):
         return None
 
@@ -190,8 +196,17 @@ class AlphaSource:
     title, prefix, kind, label = ALPHA_TITLE, "alpha:", "alpha", "Binance Alpha"
     use_exchanges = False
 
-    def __init__(self, cfg: dict, data: "alpha.AlphaData"):
-        self.cfg, self.data = cfg, data
+    def __init__(self, cfg: dict, data: "alpha.AlphaData", chain_data: "onchain.OnChain" = None):
+        self.cfg, self.data, self.chain_data = cfg, data, chain_data
+        if chain_data is not None:
+            chain_data.start_pass()
+
+    def flow(self, sid: str):
+        """Flux on-chain du jeton sur les DEX (None si indisponible)."""
+        t = self.data.tokens_by_id.get(sid) or {}
+        if self.chain_data is None or not self.cfg["onchain"] or not chain.is_address(t.get("contract")):
+            return None
+        return self.chain_data.flow(t.get("chain_id"), t["contract"])
 
     def ids(self) -> List[str]:
         return [t["id"] for t in self.data.tokens(self.cfg["alpha_min_volume"],
@@ -432,6 +447,10 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         if cfg["levels"]:
             lv = levels.analyze(c, i, source.book(sid))
             text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in lv["lines"])
+        fl = source.flow(sid)
+        if fl:
+            text += (f"\n\nFlux on-chain (DEX) : {fl['label']}\n"
+                     + "\n".join(f"  {l}" for l in fl["lines"]))
         if sid in confirmed:
             text += "\n\n" + "\n".join(summary_lines(confirmed[sid]))
         extra = ctx.lines(sym)
@@ -451,6 +470,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             "kind": source.kind, "interval": interval, "sid": sid,
             "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
             "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+            "onchain": fl["verdict"] if fl else None,
         })
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
@@ -459,6 +479,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row["change_24h"] = change
         row["info"] = source.info(sid)
         row["sid"], row["token"] = sid, source.token(sid)
+        row["onchain"] = source.flow(sid)             # plafonne par passage, les mieux notes d'abord
         if cfg["levels"]:
             cs = series[sid]
             book = source.book(sid) if (rank < 5 or ev.is_signal) else None
@@ -510,6 +531,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row["change_24h"] = change
         row["info"] = source.info(sid)
         row["sid"], row["token"] = sid, source.token(sid)
+        row["onchain"] = source.flow(sid)
         pre_rows.append(row)
     log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s), "
         f"{pre_sent} pre-explosion(s).")
@@ -551,18 +573,29 @@ def radar_once(cfg: dict, md: MarketData, tg: Telegram, ctx_provider: ContextPro
     return sent
 
 
+def make_onchain(cfg: dict):
+    """Lecteur du flux on-chain, ou None s'il est coupe ou sans cle CoinGecko payante."""
+    if not cfg["onchain"]:
+        return None
+    reader = onchain.OnChain(per_pass=int(cfg["onchain_per_pass"]))
+    return reader if reader.enabled else None
+
+
 def alpha_once(cfg: dict, md: MarketData, data: "alpha.AlphaData", tg: Telegram,
-               ctx_provider: ContextProvider) -> int:
+               ctx_provider: ContextProvider, chain_data: "onchain.OnChain" = None) -> int:
     """Un passage sur les jetons Binance Alpha. Ecrit alpha_file ; renvoie le nombre d'alertes."""
     state = load_state(cfg["state_file"])
     new_signals: list = []
-    source = AlphaSource(cfg, data)
+    source = AlphaSource(cfg, data, chain_data)
     rows, scanned, sent, pre_rows, market = scan_radar(cfg, md, tg, ctx_provider.get(), state,
                                                        new_signals, source=source)
     save_state(cfg["state_file"], state)
+    if chain_data is not None and (chain_data.used or chain_data.failed):
+        log(f"Flux on-chain : {chain_data.used} jeton(s) interroge(s), {chain_data.failed} echec(s) au total.")
     if new_signals:
         write_json(cfg["signals_file"], (new_signals + load_list(cfg["signals_file"]))[:SIGNALS_KEEP])
     write_json(cfg["alpha_file"], {
+        "onchain": chain_data is not None,
         "enabled": True,
         "available": scanned > 0 or bool(data.tokens_by_id),
         "updated": int(time.time() * 1000),
@@ -630,7 +663,7 @@ def cmd_scan(args) -> None:
     if cfg["radar"]:
         radar_once(cfg, md, tg, ctxp, newsp, exch)
     if cfg["alpha"]:
-        alpha_once(cfg, md, alpha.AlphaData(), tg, ctxp)
+        alpha_once(cfg, md, alpha.AlphaData(), tg, ctxp, make_onchain(cfg))
 
 
 def wide_once(scanner: "wide.WideScanner", tg: Telegram, notify: bool = True) -> int:
@@ -660,6 +693,7 @@ def cmd_watch(args) -> None:
     newsp, exch = NewsProvider(), Exchanges()
     scanner = wide.WideScanner(cfg) if cfg["wide"] else None
     alpha_data = alpha.AlphaData() if cfg["alpha"] else None
+    chain_data = make_onchain(cfg) if alpha_data else None
     step = INTERVAL_MS[cfg["interval"]] / 1000
     radar_step = (INTERVAL_MS[cfg["radar_interval"]] / 1000
                   if (cfg["radar"] or cfg["alpha"]) else step)
@@ -681,7 +715,7 @@ def cmd_watch(args) -> None:
                     log(f"Erreur pendant le signal Binance : {exc}")
             if alpha_data:
                 try:
-                    alpha_once(cfg, md, alpha_data, tg, ctxp)
+                    alpha_once(cfg, md, alpha_data, tg, ctxp, chain_data)
                 except Exception as exc:
                     log(f"Erreur pendant Binance Alpha : {exc}")
         if int(moment // step) != last_candle:

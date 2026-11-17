@@ -268,6 +268,24 @@ Chaque alerte donne l'entrée, le stop (sous le dernier creux, entre 1 et 3
 ATR), deux objectifs (1,5 R et 3 R), les niveaux de Fibonacci et la taille de
 position pour ne risquer que `risk_pct` % du capital.
 
+## Flux on-chain des jetons Binance Alpha
+
+Pour les jetons Alpha dont le contrat est connu, le scanner lit leurs
+principaux pools de liquidité sur les DEX (API on-chain de CoinGecko, avec la
+clé payante `COINGECKO_PRO_API_KEY`) : nombre de portefeuilles acheteurs et
+vendeurs sur une heure, volume échangé sur 15 minutes, 1 heure et 24 heures,
+liquidité. C'est une information que les bougies ne contiennent pas.
+
+Le verdict (« acheteurs dominants », « vendeurs dominants » ou « neutre »)
+est ajouté à l'alerte Telegram et à l'écran Trader. Il n'empêche aucune
+alerte de partir : il est enregistré avec chaque alerte pour que le bilan
+montre, avec le temps, s'il aide vraiment. Il n'existe pas d'historique de
+ces données pour le tester à l'avance.
+
+Chaque jeton interrogé coûte un crédit CoinGecko : `onchain_per_pass` (8 par
+défaut) plafonne le nombre de jetons par passage, soit environ 23 000 crédits
+par mois, en plus des 46 000 du balayage large, sur les 100 000 du plan Basic.
+
 ## L'application web : comptes, abonnements, écran de trading
 
 La page d'accueil du serveur est une application : Accueil, Signaux, Trader
@@ -407,6 +425,8 @@ une garantie.
 | `plans` | 9 / 29 / 249 USDT | formules : libellé, durée en jours, prix |
 | `pay_address` | vide | adresse BNB Chain qui reçoit les abonnements ; vide = abonnements fermés |
 | `pay_confirmations` | 5 | confirmations exigées avant d'activer un abonnement |
+| `onchain` | `true` | flux on-chain des jetons Alpha (demande la clé CoinGecko payante) |
+| `onchain_per_pass` | 8 | jetons interrogés par passage, un crédit CoinGecko chacun |
 | `trading` | `true` | trading sur Coinbase depuis l'application |
 | `trading_clients` | `false` | `true` : ouvert aux abonnés actifs ; `false` : administrateur seul |
 | `trade_min`, `trade_max_order`, `trade_max_day` | 5, 100, 300 | montant minimal et maximal par ordre, plafond par 24 h et par compte |

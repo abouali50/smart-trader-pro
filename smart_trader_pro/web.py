@@ -37,7 +37,7 @@ ALPHA_ID_RE = re.compile(r"^ALPHA_\d{1,8}$")
 CHART_INTERVALS = ("15m", "1h", "4h", "1d")
 # Champs reserves aux abonnes quand le paywall est actif.
 LOCKED_KEYS = ("stop", "tp1", "tp2", "trigger", "levels", "reasons", "missing", "families",
-               "info", "news", "exchanges", "where_to_trade", "token")
+               "info", "news", "exchanges", "where_to_trade", "token", "onchain")
 FREE_ROWS = 5
 ICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
         '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
