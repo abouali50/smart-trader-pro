@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from . import (__version__, alpha, backtest, breakout, chain, compare, levels, onchain, pressure, strategy,
+from . import (__version__, alpha, backtest, breakout, chain, compare, levels, onchain, pressure, quality, strategy,
                tracker,
                wide)
 from .context import ContextProvider, MarketContext
@@ -77,6 +77,7 @@ DEFAULTS = {
     "pay_rpc": [],                    # vide : noeuds publics de BNB Chain
     # Trading en un clic sur Coinbase (cle API du titulaire, sans permission de retrait).
     # Flux on-chain des jetons Alpha (acheteurs / vendeurs sur les DEX), avec la cle CoinGecko payante.
+    "min_quality": "C",               # "B" : seules les alertes notees A ou B partent sur Telegram
     "onchain": True,
     "onchain_per_pass": 8,            # jetons interroges par passage : 1 credit CoinGecko chacun
     "trading": True,
@@ -397,8 +398,16 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         return [], 0, 0, [], None
     market = breakout.market_now(btc, rp)
     blocked = MARKET_DOWN if market == "down" else ""
-    held = 0
+    held = below = 0
     found, sent, confirmed, series = [], 0, {}, {}
+    runs: dict = {}
+
+    def grade_of(sid, ev, c, i, fl) -> dict:
+        """Note de qualite A / B / C de la cassure : ce qui l'entoure, pas le score."""
+        of = levels.order_flow(c, i)
+        return quality.grade(ev.risk_pct, runs.get(sid), ctx.market_change_24h, confirmed.get(sid),
+                             of["cvd"] if of else None, fl)
+
     pp = pressure.Params.from_dict(cfg["pressure_strategy"])
     pressured: list = []
     for sid in ids:
@@ -420,6 +429,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
             change = (c.close[i] / c.close[i - day] - 1) * 100 if i >= day else None
         found.append((ev, change, sid))
         series[sid] = c
+        runs[sid] = (c.close[i] / c.close[i - rp.late_bars] - 1) * 100 if i >= rp.late_bars else None
         if cfg["pressure"] and len(c) >= pressure.warmup(pp) + 1:
             pev = pressure.evaluate(pressure.prepare(c, pp, btc=btc), i, pp)
             if pev is not None:
@@ -438,16 +448,31 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
                     "kind": "held-" + source.kind, "interval": interval, "sid": sid,
                     "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
                     "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+                    "quality": grade_of(sid, ev, c, i, None)["grade"],
                 })
             continue
+        fl = source.flow(sid)
+        q = grade_of(sid, ev, c, i, fl)
+        state[key] = ev.ts
+        entry = {
+            "kind": source.kind, "interval": interval, "sid": sid,
+            "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
+            "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
+            "onchain": fl["verdict"] if fl else None, "quality": q["grade"],
+        }
+        if not quality.allowed(q["grade"], cfg["min_quality"]):
+            below += 1                                # suivie dans le bilan, sans message
+            new_signals.append(dict(entry, sent=False))
+            continue
         text = format_signal(ev, interval, cfg["capital"], cfg["risk_pct"], title=source.title)
+        head = text.split("\n")
+        text = "\n".join(head[:2] + quality.lines(q) + head[2:])
         info = source.info(sid)
         if info:
             text += "\n\nLe jeton :\n" + "\n".join(f"  {l}" for l in info)
         if cfg["levels"]:
             lv = levels.analyze(c, i, source.book(sid))
             text += "\n\nNiveaux et flux d'ordres :\n" + "\n".join(f"  {l}" for l in lv["lines"])
-        fl = source.flow(sid)
         if fl:
             text += (f"\n\nFlux on-chain (DEX) : {fl['label']}\n"
                      + "\n".join(f"  {l}" for l in fl["lines"]))
@@ -464,14 +489,8 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         print("\n" + text + "\n", flush=True)
         if tg.enabled and not tg.send(text):
             log(f"{sym} : echec de l'envoi Telegram")
-        state[key] = ev.ts
         sent += 1
-        new_signals.append({
-            "kind": source.kind, "interval": interval, "sid": sid,
-            "symbol": sym, "ts": ev.ts, "price": ev.price, "score": ev.score,
-            "stop": ev.stop, "tp1": ev.tp1, "tp2": ev.tp2,
-            "onchain": fl["verdict"] if fl else None,
-        })
+        new_signals.append(entry)
     found.sort(key=lambda t: (t[0].is_signal, t[0].score), reverse=True)
     rows = []
     for rank, (ev, change, sid) in enumerate(found[:20]):
@@ -480,6 +499,7 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         row["info"] = source.info(sid)
         row["sid"], row["token"] = sid, source.token(sid)
         row["onchain"] = source.flow(sid)             # plafonne par passage, les mieux notes d'abord
+        row["quality"] = grade_of(sid, ev, series[sid], len(series[sid]) - 1, row["onchain"])
         if cfg["levels"]:
             cs = series[sid]
             book = source.book(sid) if (rank < 5 or ev.is_signal) else None
@@ -535,6 +555,9 @@ def scan_radar(cfg: dict, md: MarketData, tg: Telegram, ctx: MarketContext,
         pre_rows.append(row)
     log(f"{source.label} ({interval}) : {len(found)} paires analysees, {sent} explosion(s), "
         f"{pre_sent} pre-explosion(s).")
+    if below:
+        log(f"{source.label} : {below} alerte(s) sous la qualite minimale {cfg['min_quality']}, "
+            "suivie(s) dans le bilan sans message.")
     if blocked:
         log(f"{source.label} : alertes d'explosion suspendues ({MARKET_DOWN}), "
             f"{held} cassure(s) retenue(s).")

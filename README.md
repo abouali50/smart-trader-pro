@@ -268,6 +268,22 @@ Chaque alerte donne l'entrée, le stop (sous le dernier creux, entre 1 et 3
 ATR), deux objectifs (1,5 R et 3 R), les niveaux de Fibonacci et la taille de
 position pour ne risquer que `risk_pct` % du capital.
 
+## Note de qualité A, B ou C
+
+Le score dit si la cassure est techniquement nette. La note de qualité
+regarde ce qui l'entoure, en cinq questions : le mouvement est-il confirmé
+ailleurs (autres plateformes, ou acheteurs on-chain pour un jeton Alpha), le
+marché monte-t-il, les acheteurs dominent-ils depuis plusieurs heures, le
+stop est-il à une distance raisonnable, le départ est-il récent. A : au moins
+4 points favorables et aucun défavorable. C : 1 favorable au plus, ou 3
+défavorables. B : le reste.
+
+La note et ses raisons figurent en tête de chaque alerte Telegram et dans
+l'écran Trader. Avec `"min_quality": "B"`, seules les alertes A et B partent
+sur Telegram ; les C restent sur la page et dans le bilan. Ces seuils sont un
+tri de bon sens, pas une règle prouvée : le bilan est détaillé par note, pour
+voir si les A font réellement mieux que les C.
+
 ## Flux on-chain des jetons Binance Alpha
 
 Pour les jetons Alpha dont le contrat est connu, le scanner lit leurs
@@ -425,6 +441,7 @@ une garantie.
 | `plans` | 9 / 29 / 249 USDT | formules : libellé, durée en jours, prix |
 | `pay_address` | vide | adresse BNB Chain qui reçoit les abonnements ; vide = abonnements fermés |
 | `pay_confirmations` | 5 | confirmations exigées avant d'activer un abonnement |
+| `min_quality` | `"C"` | `"B"` : seules les alertes notées A ou B partent sur Telegram ; `"A"` : les A seulement |
 | `onchain` | `true` | flux on-chain des jetons Alpha (demande la clé CoinGecko payante) |
 | `onchain_per_pass` | 8 | jetons interrogés par passage, un crédit CoinGecko chacun |
 | `trading` | `true` | trading sur Coinbase depuis l'application |

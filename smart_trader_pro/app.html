@@ -102,6 +102,9 @@
   .pill.sig { background: var(--up); border-color: var(--up); color: #06281a; }
   .pill.hot { background: var(--hot); border-color: var(--hot); color: #2a1200; }
   .pill.hold { border-color: rgba(245, 185, 66, .5); color: var(--warn); }
+  .q { display: inline-block; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: 6px; font-size: 11.5px; font-weight: 750; margin-left: 7px; }
+  .q.A { background: var(--up); color: #06281a; } .q.B { background: var(--warn); color: #2b1d00; } .q.C { background: #3a4658; color: #c9d3e0; }
+  .tr.sub { padding: 7px 16px 7px 34px; color: var(--muted); font-size: 13px; }
   .empty { padding: 26px 16px; color: var(--muted); text-align: center; font-size: 14px; }
 
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line2); background: var(--panel2); padding: 10px 16px; border-radius: 12px; font-weight: 620; color: var(--text); }
@@ -297,6 +300,7 @@
     var b = h("button", "tr"); b.type = "button";
     var nm = h("div", "sym", x.kind === "wide" ? x.symbol : base(x.symbol));
     nm.appendChild(h("small", "", x.kind === "wide" ? " · " + (x.name || "") : (x.src === "alpha" ? " · Alpha" : " / USDT")));
+    if (x.quality && x.signal) nm.appendChild(h("span", "q " + x.quality.grade, x.quality.grade));
     b.appendChild(nm);
     b.appendChild(h("div", "num right", price(x.price)));
     var sc = h("div", "score"), bar = h("div", "bar"), fill = h("i", x.score >= (min || 101) ? "hot" : "");
@@ -352,7 +356,7 @@
       var hg = h("div", "grid g3");
       hits.slice(0, 6).forEach(function (x) {
         var b = h("button", "hero"); b.type = "button";
-        b.appendChild(h("div", "tag", (x.src === "alpha" ? "Binance Alpha" : "Binance") + " · score " + x.score + "/100"));
+        b.appendChild(h("div", "tag", (x.src === "alpha" ? "Binance Alpha" : "Binance") + " · score " + x.score + "/100" + (x.quality ? " · qualité " + x.quality.grade : "")));
         var n = h("div", "name", base(x.symbol)); n.appendChild(h("small", "", " / USDT")); b.appendChild(n);
         var m = h("div", "muted"); m.appendChild(document.createTextNode(when(x.ts) + " · ")); m.appendChild(signed(x.change_24h)); b.appendChild(m);
         if (!x.locked) {
@@ -533,6 +537,15 @@
       why.forEach(function (t) { ul.appendChild(h("li", "y", t)); });
       miss.slice(0, 6).forEach(function (t) { ul.appendChild(h("li", "n", t)); });
       wc.appendChild(ul); right.appendChild(wc);
+    }
+    if (x.quality && (x.quality.pros.length || x.quality.cons.length)) {
+      var qc = h("div", "card"), qh = h("h3", "", "Qualité de la cassure");
+      qh.appendChild(h("span", "q " + x.quality.grade, x.quality.grade)); qc.appendChild(qh);
+      qc.appendChild(h("div", "note", x.quality.fav + " point(s) pour, " + x.quality.con + " contre, sur " + x.quality.known + ". Le score dit si la cassure est nette ; la qualité dit si ce qui l'entoure la soutient.")).style.margin = "0 0 6px";
+      var ql = h("ul", "clean");
+      x.quality.pros.forEach(function (t) { ql.appendChild(h("li", "y", t)); });
+      x.quality.cons.forEach(function (t) { ql.appendChild(h("li", "n", t)); });
+      qc.appendChild(ql); right.appendChild(qc);
     }
     if (x.onchain && x.onchain.lines) {
       var oc = h("div", "card"), oh = h("h3", "", "Flux on-chain (DEX)");
@@ -765,6 +778,16 @@
       var a = h("div", "num right opt"); if (x.closed) a.appendChild(colored(rText(x.avg_r), x.avg_r)); else a.textContent = "—"; r.appendChild(a);
       var tt = h("div", "num right opt"); if (x.closed) tt.appendChild(colored(rText(x.total_r), x.total_r)); else tt.textContent = "—"; r.appendChild(tt);
       tb.appendChild(r);
+      ["A", "B", "C"].forEach(function (g2) {
+        var y = (x.by_quality || {})[g2]; if (!y) return;
+        var sr = h("div", "tr sub");
+        var sn = h("div", "", "Qualité"); sn.appendChild(h("span", "q " + g2, g2)); sr.appendChild(sn);
+        sr.appendChild(h("div", "num right", String(y.closed)));
+        sr.appendChild(h("div", "num right", Math.round(y.win_rate) + " %"));
+        var sa = h("div", "num right opt"); sa.appendChild(colored(rText(y.avg_r), y.avg_r)); sr.appendChild(sa);
+        var st2 = h("div", "num right opt"); st2.appendChild(colored(rText(y.total_r), y.total_r)); sr.appendChild(st2);
+        tb.appendChild(sr);
+      });
     });
     root.appendChild(tb);
     var sec = h("section"); sec.appendChild(h("h2", "", "Dernières alertes"));
@@ -772,7 +795,8 @@
     if (!sig.length) lt.appendChild(h("div", "empty", "Aucune alerte enregistrée pour l'instant."));
     sig.slice(0, 30).forEach(function (x) {
       var r = h("div", "tr");
-      var nm = h("div", "sym", base(x.symbol)); nm.appendChild(h("small", "", " · " + (KINDS[x.kind] || KINDS.repli).toLowerCase())); r.appendChild(nm);
+      var nm = h("div", "sym", base(x.symbol)); nm.appendChild(h("small", "", " · " + (KINDS[x.kind] || KINDS.repli).toLowerCase() + (x.sent === false ? " · non envoyée" : "")));
+      if (x.quality) nm.appendChild(h("span", "q " + x.quality, x.quality)); r.appendChild(nm);
       r.appendChild(h("div", "num right", when(x.ts)));
       var o = h("div", "num"); o.appendChild(x.locked ? h("span", "muted", "abonnés") : outcomeNode(x.outcome)); r.appendChild(o);
       r.appendChild(h("div", "num right opt", "Entrée " + price(x.price)));

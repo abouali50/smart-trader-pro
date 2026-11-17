@@ -132,9 +132,18 @@ def summary(signals: List[dict]) -> Dict[str, dict]:
             g["wins"] += out["r"] > 0
             g["total_r"] += out["r"]
             g["total_pct"] += out["pct"]
+            if sig.get("quality") in ("A", "B", "C"):
+                q = g.setdefault("by_quality", {}).setdefault(
+                    sig["quality"], {"closed": 0, "wins": 0, "total_r": 0.0})
+                q["closed"] += 1
+                q["wins"] += out["r"] > 0
+                q["total_r"] += out["r"]
     for g in groups.values():
         n = g["closed"]
         g["win_rate"] = g["wins"] / n * 100 if n else None
         g["avg_r"] = g["total_r"] / n if n else None
         g["avg_pct"] = g.pop("total_pct") / n if n else None
+        for q in (g.get("by_quality") or {}).values():
+            q["win_rate"] = q["wins"] / q["closed"] * 100
+            q["avg_r"] = q["total_r"] / q["closed"]
     return groups
